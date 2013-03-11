@@ -73,6 +73,8 @@ public class LargeScaleInfoA3 extends HttpServlet {
 		if(request.getCookies() != null){
 			System.out.println("old cookie");
 			for(Cookie c : request.getCookies()){
+					System.out.println("cookieVal of old cookie:" + c.getValue());
+				
 				Hashtable<String,String> parsed= parseCookieValue(c.getValue());
 				//				System.out.println(c.getValue());
 				if(c.getName().equals(a2CookieName) && sessionTable.containsKey(parsed.get("sessionID"))){
@@ -118,7 +120,7 @@ public class LargeScaleInfoA3 extends HttpServlet {
 
 		//Add cookie to response regardless, as it always contains new expiration and version information
 		response.addCookie(a2Cookie);
-		//		System.out.println("cookie val: " + a2Cookie.getValue());
+		System.out.println("cookie val: " + a2Cookie.getValue());
 		return sessionID;
 	}
 
@@ -161,16 +163,15 @@ public class LargeScaleInfoA3 extends HttpServlet {
 		} else {
 			String cookieVal=sessionID;
 			//update version number
-			if ((sessionID != null) && sessionTable.contains(sessionID)) {
-				int oldVersion = Integer.parseInt(sessionTable.get(sessionID).get("version"));
-				String newVersion = ((Integer)(oldVersion + 1)).toString();
-				sessionTable.get(sessionID).put("version", newVersion);
-				cookieVal += "_"+ newVersion;
-			}
+			int oldVersion = Integer.parseInt(sessionTable.get(sessionID).get("version"));
+			String newVersion = ((Integer)(oldVersion + 1)).toString();
+			sessionTable.get(sessionID).put("version", newVersion);
+			cookieVal += "_"+ newVersion;
+//			System.out.println("new version put in. cookieVal: "+cookieVal);
 
 			//update location (TODO for now it stays the same)
 			cookieVal += "_" + sessionTable.get(sessionID).get("location");
-
+//			System.out.println("new location put in. cookieVal: "+cookieVal);
 
 			//update expiration timestamp
 			Calendar cal = Calendar.getInstance();
@@ -178,18 +179,27 @@ public class LargeScaleInfoA3 extends HttpServlet {
 			String newExpr =  df.format(cal.getTime());
 			sessionTable.get(sessionID).put("expiration-timestamp", newExpr);
 			cookieVal+="_"+newExpr;
+//			System.out.println("new expr time put in. cookieVal: "+cookieVal);
 
 			//Update message for session
 			if(cmd.equals("Replace")) {
 				System.out.println("Replace command");
 				//				System.out.println("String length: " + message.length());
 				sessionTable.get(sessionID).put("message", message);
-				cookieVal+="_"+message;
+				if (message.length() == 0){
+					cookieVal += "_-";
+				}
+				else {
+					cookieVal+="_"+message;
+				}
+				
 			} else if(cmd.equals("Refresh")){ //Update relevant session's expiration 
 				System.out.println("Refresh command");
 				cookieVal+="_"+"-";
 			} 
 
+//			System.out.println("new message put in. cookieVal: "+cookieVal);
+			
 			//make a new cookie for the request
 			System.out.println("new cookie for request: " + cookieVal);
 			Cookie newCookie = new Cookie(a2CookieName, cookieVal);
