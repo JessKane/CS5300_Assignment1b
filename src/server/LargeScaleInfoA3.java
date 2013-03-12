@@ -10,7 +10,7 @@ import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.Calendar;
 import java.util.Date;
-import java.util.Hashtable;
+import java.util.concurrent.ConcurrentHashMap;
 
 import javax.servlet.ServletException;
 import javax.servlet.annotation.WebServlet;
@@ -32,8 +32,8 @@ public class LargeScaleInfoA3 extends HttpServlet {
 	private static final DateFormat df = new SimpleDateFormat("yyyy/MM/dd HH:mm:ss");
 
 
-	//Hashtable of sessionIDs to a table of information on their message, location, and expiration data.
-	Hashtable<String,Hashtable<String,String>> sessionTable = new Hashtable<String,Hashtable<String,String>>();
+	//ConcurrentHashMap of sessionIDs to a table of information on their message, location, and expiration data.
+	ConcurrentHashMap<String,ConcurrentHashMap<String,String>> sessionTable = new ConcurrentHashMap<String,ConcurrentHashMap<String,String>>();
 
 	//Cookie name that is searched for in this project
 	String a2CookieName = "CS5300PROJ1SESSION";
@@ -75,7 +75,7 @@ public class LargeScaleInfoA3 extends HttpServlet {
 			for(Cookie c : request.getCookies()){
 					System.out.println("cookieVal of old cookie:" + c.getValue());
 				
-				Hashtable<String,String> parsed= parseCookieValue(c.getValue());
+				ConcurrentHashMap<String,String> parsed= parseCookieValue(c.getValue());
 				//				System.out.println(c.getValue());
 				if(c.getName().equals(a2CookieName) && sessionTable.containsKey(parsed.get("sessionID"))){
 					a2Cookie = c;
@@ -94,7 +94,7 @@ public class LargeScaleInfoA3 extends HttpServlet {
 			Calendar cal = Calendar.getInstance();
 			cal.add(Calendar.MINUTE, cookieDuration);
 
-			Hashtable<String, String> sessionValues = new Hashtable<String, String>();
+			ConcurrentHashMap<String, String> sessionValues = new ConcurrentHashMap<String, String>();
 			sessionValues.put("version", 1 +"");
 			sessionValues.put("message", "");
 			sessionValues.put("expiration-timestamp", df.format(cal.getTime()));
@@ -339,10 +339,10 @@ public class LargeScaleInfoA3 extends HttpServlet {
 	/*cookieVal is the string used as the value of a Cookie
 	 *Includes, in this exact order: sessionID, version, location, expiration-timestamp, message
 	 *Each information of the cookie is in the following format: 'key=value,'
-	 *parseCookieValue parses the string into a Hashtable
+	 *parseCookieValue parses the string into a ConcurrentHashMap
 	 */
-	private Hashtable<String,String> parseCookieValue(String cookieVal){
-		Hashtable<String,String> parsed= new Hashtable<String,String>();
+	private ConcurrentHashMap<String,String> parseCookieValue(String cookieVal){
+		ConcurrentHashMap<String,String> parsed= new ConcurrentHashMap<String,String>();
 		String[] underscoreParsed = cookieVal.split("_");
 		if (underscoreParsed.length != 5){
 			System.out.println("array is " + underscoreParsed.length + " components long");
@@ -378,7 +378,7 @@ public class LargeScaleInfoA3 extends HttpServlet {
 		public void run(){
 			while(true){
 				for (String sessionID: sessionTable.keySet()){
-					Hashtable<String,String> session = sessionTable.get(sessionID);
+					ConcurrentHashMap<String,String> session = sessionTable.get(sessionID);
 					String exprString= session.get("expiration-timestamp");
 
 					Date expDate = null;
