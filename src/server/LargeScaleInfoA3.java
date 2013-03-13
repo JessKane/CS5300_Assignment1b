@@ -1,13 +1,20 @@
 package server;
 
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InterruptedIOException;
 import java.io.PrintWriter;
+import java.io.UnsupportedEncodingException;
+import java.net.DatagramPacket;
+import java.net.DatagramSocket;
 import java.net.InetAddress;
+import java.net.SocketException;
 import java.net.UnknownHostException;
 import java.text.DateFormat;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Date;
 import java.util.Hashtable;
@@ -35,11 +42,24 @@ public class LargeScaleInfoA3 extends HttpServlet {
 	//Hashtable of sessionIDs to a table of information on their message, location, and expiration data.
 	Hashtable<String,Hashtable<String,String>> sessionTable = new Hashtable<String,Hashtable<String,String>>();
 
+	//Set of known servers, their ips and corresponding listening ports
+	ArrayList<Hashtable<String,String>> mbrSet = new ArrayList<Hashtable<String,String>>();
+	
 	//Cookie name that is searched for in this project
 	String a2CookieName = "CS5300PROJ1SESSION";
 
 	//Garbage Collector - cleans up expired sessions from sessionTable
 	GarbageCollector janitorThread = new GarbageCollector("name");
+	
+	//RPC Protocol
+	RPCProtocol rpcp;
+	
+	/*
+	 * Constructor for initializing RPC handling
+	 */
+	public LargeScaleInfoA3(){
+		rpcp = new RPCProtocol(sessionTable, mbrSet);
+	}
 
 	/*
 	 * Base method handling requests
@@ -47,7 +67,7 @@ public class LargeScaleInfoA3 extends HttpServlet {
 	@Override
 	public void doGet(HttpServletRequest request,HttpServletResponse response)	throws ServletException, IOException {
 		PrintWriter out = response.getWriter();
-
+		
 		String sessionID = handleCookie(request, response);
 		handleCommand(response, request, out, sessionID);
 
@@ -195,6 +215,9 @@ public class LargeScaleInfoA3 extends HttpServlet {
 				
 			} else if(cmd.equals("Refresh")){ //Update relevant session's expiration 
 				System.out.println("Refresh command");
+				
+				//System.out.println("SAMPLE RPC CALL " + rpcp.getMembersClient(3, null, null).toString());
+
 				cookieVal+="_"+"-";
 			} 
 
@@ -205,8 +228,6 @@ public class LargeScaleInfoA3 extends HttpServlet {
 			Cookie newCookie = new Cookie(a2CookieName, cookieVal);
 			response.addCookie(newCookie);
 			System.out.println(cookieVal);
-
-
 		}
 	}
 
@@ -377,33 +398,36 @@ public class LargeScaleInfoA3 extends HttpServlet {
 
 		public void run(){
 			while(true){
-				for (String sessionID: sessionTable.keySet()){
-					Hashtable<String,String> session = sessionTable.get(sessionID);
-					String exprString= session.get("expiration-timestamp");
-
-					Date expDate = null;
+					for (String sessionID: sessionTable.keySet()){
+						Hashtable<String,String> session = sessionTable.get(sessionID);
+						String exprString= session.get("expiration-timestamp");
+	
+						Date expDate = null;
+						try {
+							expDate = df.parse(exprString);
+						} catch (ParseException e) {
+							System.out.println("Failure in parsing date");
+						}
+						if ((new Date()).after(expDate)){
+							System.out.println("Session " + sessionID + " has expired");
+							sessionTable.remove(sessionID);
+							System.out.println("sessiontable size: "+ sessionTable.size());
+						}
+						else{
+							//					System.out.println("Session #"+sessionID + " not expired");
+						}
+	
+					}
 					try {
-						expDate = df.parse(exprString);
-					} catch (ParseException e) {
-						System.out.println("Failure in parsing date");
+						sleep(5000);
+					} catch (InterruptedException e) {
+						// TODO Auto-generated catch block
+						e.printStackTrace();
 					}
-					if ((new Date()).after(expDate)){
-						System.out.println("Session " + sessionID + " has expired");
-						sessionTable.remove(sessionID);
-						System.out.println("sessiontable size: "+ sessionTable.size());
-					}
-					else{
-						//					System.out.println("Session #"+sessionID + " not expired");
-					}
-
 				}
-				try {
-					sleep(5000);
-				} catch (InterruptedException e) {
-					// TODO Auto-generated catch block
-					e.printStackTrace();
-				}
-			}
 		}
 	}
+	
+	
+	
 }
