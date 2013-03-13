@@ -65,9 +65,11 @@ public class RPCProtocol {
 		String s = Operation.SessionRead.id + delim + SID + delim + version;
 		try {
 			String[] strArr = new String(RPCClient(s, destAddr, destPort).getData(), "UTF-8").split(delim);
-			return strArr[1] + "#" + strArr[2];
+			return strArr[1] + delim + strArr[2];
 		} catch (UnsupportedEncodingException e) {
 			e.printStackTrace();
+		} catch(Exception e){
+			return "notFound";
 		}
 		return null;
 	}
