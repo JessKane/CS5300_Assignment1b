@@ -25,20 +25,17 @@ public class RPCProtocol {
 	//Set of known servers, their ips and corresponding listening ports
 	ArrayList<ConcurrentHashMap<String, String>> mbrSet = new ArrayList<ConcurrentHashMap<String, String>>();
 	
-	//RPC Recieving Server
-	RPCServer rpcs;
-	
 	//Deliminator, using pound since underscore is used in location tracking for sessions
 	String delim = "#";
 	
 	//Call id number tracker
 	private static int callID_num = 0;
 		
-	public RPCProtocol(ConcurrentHashMap<String, ConcurrentHashMap<String, String>> sessionTable2, ArrayList<ConcurrentHashMap<String, String>> mbrSet2){
+	public RPCProtocol(ConcurrentHashMap<String, ConcurrentHashMap<String, String>> sessionTable, ArrayList<ConcurrentHashMap<String, String>> mbrSet){
 		
-		this.sessionTable = sessionTable2;
-		this.mbrSet = mbrSet2;
-		rpcs = new RPCServer(); 
+		this.sessionTable = sessionTable;
+		this.mbrSet = mbrSet;
+		RPCServer rpcs1 = new RPCServer();
 		RPCServer rpcs2 = new RPCServer();
 		RPCServer rpcs3 = new RPCServer();
 	}
