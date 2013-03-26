@@ -39,6 +39,11 @@ public class RPCProtocol {
 	//Call id number tracker
 	private static int callID_num = 0;
 		
+	/**
+	 * 
+	 * @param sessionTable - <session_ID, sessionValues(hashmap with keys: version, message, expiration_time, location)>
+	 * @param mbrSet - each member (cell in ArrayList) has a hashmap describing its ip addr and port 
+	 */
 	public RPCProtocol(ConcurrentHashMap<String, ConcurrentHashMap<String, String>> sessionTable, ArrayList<ConcurrentHashMap<String, String>> mbrSet){
 		
 		this.sessionTable = sessionTable;
@@ -235,7 +240,7 @@ public class RPCProtocol {
 		}
 		
 		String SID = dataStringArr[2];
-		String version = dataStringArr[3];
+//		String version = dataStringArr[3];
 		
 		
 		if(sessionTable.containsKey(SID)){
@@ -254,10 +259,10 @@ public class RPCProtocol {
 		}
 		
 		String SID = dataStringArr[2];
-		String version = dataStringArr[3];
-		String message = dataStringArr[4];
-		String experation = dataStringArr[5];
-		
+//		String version = dataStringArr[3];
+//		String message = dataStringArr[4];
+//		String expiration = dataStringArr[5];
+//		
 		ConcurrentHashMap<String, String> sessionValues = new ConcurrentHashMap<String, String>();
 		sessionValues.put("version", dataStringArr[3]);
 		sessionValues.put("message", dataStringArr[4]);
