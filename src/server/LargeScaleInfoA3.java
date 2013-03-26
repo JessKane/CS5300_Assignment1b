@@ -1,16 +1,23 @@
 package server;
 
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InterruptedIOException;
 import java.io.PrintWriter;
+import java.io.UnsupportedEncodingException;
+import java.net.DatagramPacket;
+import java.net.DatagramSocket;
 import java.net.InetAddress;
+import java.net.SocketException;
 import java.net.UnknownHostException;
 import java.text.DateFormat;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Date;
-import java.util.Hashtable;
+import java.util.concurrent.ConcurrentHashMap;
 
 import javax.servlet.ServletException;
 import javax.servlet.annotation.WebServlet;
@@ -29,17 +36,54 @@ public class LargeScaleInfoA3 extends HttpServlet {
 
 	private static int session_num = 0;
 
-	private static final DateFormat df = new SimpleDateFormat("yyyy/MM/dd HH:mm:ss");
+	//private static final DateFormat df = new SimpleDateFormat("yyyy/MM/dd HH:mm:ss");
+	
+	public static class DateFormatThreadSafe {
+
+		  private static final ThreadLocal<DateFormat> df
+		                 = new ThreadLocal<DateFormat>(){
+		    @Override
+		    protected DateFormat initialValue() {
+		        return new SimpleDateFormat("yyyy/MM/dd HH:mm:ss");
+		    }
+		  };
+
+	  public Date parse(String source)
+	                     throws ParseException{
+	    Date d = df.get().parse(source);
+	    return d;
+	  }
+		  
+		public String format(Date time) {
+			 String d = df.get().format(time);
+			 return d;
+		}
+		  
+	}
+	private static final DateFormatThreadSafe df = new DateFormatThreadSafe();
 
 
-	//Hashtable of sessionIDs to a table of information on their message, location, and expiration data.
-	Hashtable<String,Hashtable<String,String>> sessionTable = new Hashtable<String,Hashtable<String,String>>();
+	//ConcurrentHashMap of sessionIDs to a table of information on their message, location, and expiration data.
+	ConcurrentHashMap<String,ConcurrentHashMap<String,String>> sessionTable = new ConcurrentHashMap<String,ConcurrentHashMap<String,String>>();
 
+	//Set of known servers, their ips and corresponding listening ports
+	ArrayList<ConcurrentHashMap<String,String>> mbrSet = new ArrayList<ConcurrentHashMap<String,String>>();
+	
 	//Cookie name that is searched for in this project
 	String a2CookieName = "CS5300PROJ1SESSION";
 
 	//Garbage Collector - cleans up expired sessions from sessionTable
 	GarbageCollector janitorThread = new GarbageCollector("name");
+	
+	//RPC Protocol
+	RPCProtocol rpcp;
+	
+	/*
+	 * Constructor for initializing RPC handling
+	 */
+	public LargeScaleInfoA3(){
+		rpcp = new RPCProtocol(sessionTable, mbrSet);
+	}
 
 	/*
 	 * Base method handling requests
@@ -47,11 +91,13 @@ public class LargeScaleInfoA3 extends HttpServlet {
 	@Override
 	public void doGet(HttpServletRequest request,HttpServletResponse response)	throws ServletException, IOException {
 		PrintWriter out = response.getWriter();
-
+		
 		String sessionID = handleCookie(request, response);
 		handleCommand(response, request, out, sessionID);
 
 		out.println("<html>\n<body>\n<br>&nbsp;<br>");
+		
+		//PRINT SESSIONID
 
 		out.println(getMessage(sessionID));
 		out.println(getForm());
@@ -75,7 +121,7 @@ public class LargeScaleInfoA3 extends HttpServlet {
 			for(Cookie c : request.getCookies()){
 					System.out.println("cookieVal of old cookie:" + c.getValue());
 				
-				Hashtable<String,String> parsed= parseCookieValue(c.getValue());
+				ConcurrentHashMap<String,String> parsed= parseCookieValue(c.getValue());
 				//				System.out.println(c.getValue());
 				if(c.getName().equals(a2CookieName) && sessionTable.containsKey(parsed.get("sessionID"))){
 					a2Cookie = c;
@@ -94,12 +140,12 @@ public class LargeScaleInfoA3 extends HttpServlet {
 			Calendar cal = Calendar.getInstance();
 			cal.add(Calendar.MINUTE, cookieDuration);
 
-			Hashtable<String, String> sessionValues = new Hashtable<String, String>();
+			ConcurrentHashMap<String, String> sessionValues = new ConcurrentHashMap<String, String>();
 			sessionValues.put("version", 1 +"");
 			sessionValues.put("message", "");
 			sessionValues.put("expiration-timestamp", df.format(cal.getTime()));
 			try {
-				String ip= InetAddress.getLocalHost().getHostAddress() + "_" + request.getLocalPort();
+				String ip= InetAddress.getLocalHost().getHostAddress() + "_" + rpcp.getUDPLocalPort();
 				sessionValues.put("location", ip + "_" + "-" + "_" + "-"); //TODO replace "-" with PP(backup) IP and port
 			} catch (UnknownHostException e) {
 				sessionValues.put("location", "Unknown host");
@@ -131,7 +177,7 @@ public class LargeScaleInfoA3 extends HttpServlet {
 		session_num ++;
 		String sessionID = "";
 		try {
-			sessionID = ""+session_num+"_"+InetAddress.getLocalHost().getHostAddress() + "_" + request.getLocalPort();
+			sessionID = ""+session_num+"_"+InetAddress.getLocalHost().getHostAddress() + "_" + rpcp.getUDPLocalPort();
 		} catch (UnknownHostException e) {
 			// TODO Auto-generated catch block
 			e.printStackTrace();
@@ -195,6 +241,9 @@ public class LargeScaleInfoA3 extends HttpServlet {
 				
 			} else if(cmd.equals("Refresh")){ //Update relevant session's expiration 
 				System.out.println("Refresh command");
+				
+				System.out.println("SAMPLE RPC CALL " + rpcp.getMembersClient(3, null, null).toString());
+
 				cookieVal+="_"+"-";
 			} 
 
@@ -205,8 +254,6 @@ public class LargeScaleInfoA3 extends HttpServlet {
 			Cookie newCookie = new Cookie(a2CookieName, cookieVal);
 			response.addCookie(newCookie);
 			System.out.println(cookieVal);
-
-
 		}
 	}
 
@@ -283,6 +330,8 @@ public class LargeScaleInfoA3 extends HttpServlet {
 				expDate = df.parse(expirationDate);
 			} catch (ParseException e) {
 				System.out.println("Cookie Date Parse Error");
+			} catch(NumberFormatException e){
+				System.out.println("Number Format " + expirationDate);
 			}
 
 			if (expDate.after(currentDate)) {
@@ -339,10 +388,10 @@ public class LargeScaleInfoA3 extends HttpServlet {
 	/*cookieVal is the string used as the value of a Cookie
 	 *Includes, in this exact order: sessionID, version, location, expiration-timestamp, message
 	 *Each information of the cookie is in the following format: 'key=value,'
-	 *parseCookieValue parses the string into a Hashtable
+	 *parseCookieValue parses the string into a ConcurrentHashMap
 	 */
-	private Hashtable<String,String> parseCookieValue(String cookieVal){
-		Hashtable<String,String> parsed= new Hashtable<String,String>();
+	private ConcurrentHashMap<String,String> parseCookieValue(String cookieVal){
+		ConcurrentHashMap<String,String> parsed= new ConcurrentHashMap<String,String>();
 		String[] underscoreParsed = cookieVal.split("_");
 		if (underscoreParsed.length != 5){
 			System.out.println("array is " + underscoreParsed.length + " components long");
@@ -378,7 +427,7 @@ public class LargeScaleInfoA3 extends HttpServlet {
 		public void run(){
 			while(true){
 				for (String sessionID: sessionTable.keySet()){
-					Hashtable<String,String> session = sessionTable.get(sessionID);
+					ConcurrentHashMap<String,String> session = sessionTable.get(sessionID);
 					String exprString= session.get("expiration-timestamp");
 
 					Date expDate = null;
@@ -388,7 +437,7 @@ public class LargeScaleInfoA3 extends HttpServlet {
 						System.out.println("Failure in parsing date");
 					}
 					if ((new Date()).after(expDate)){
-						System.out.println("Session " + sessionID + " has expired");
+						System.out.println("Session " + sessionID + " has expired " + expDate);
 						sessionTable.remove(sessionID);
 						System.out.println("sessiontable size: "+ sessionTable.size());
 					}
@@ -397,12 +446,12 @@ public class LargeScaleInfoA3 extends HttpServlet {
 					}
 
 				}
-				try {
+				/*try {
 					sleep(5000);
 				} catch (InterruptedException e) {
 					// TODO Auto-generated catch block
 					e.printStackTrace();
-				}
+				}*/
 			}
 		}
 	}
