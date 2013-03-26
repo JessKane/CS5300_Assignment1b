@@ -146,7 +146,7 @@ public class LargeScaleInfoA3 extends HttpServlet {
 			sessionValues.put("expiration-timestamp", df.format(cal.getTime()));
 			try {
 				String ip= InetAddress.getLocalHost().getHostAddress() + "_" + rpcp.getUDPLocalPort();
-				sessionValues.put("location", ip + "_" + "-" + "_" + "-"); //TODO replace "-" with PP(backup) IP and port
+				sessionValues.put("location", ip); // no backup for new cookie on new reboot
 			} catch (UnknownHostException e) {
 				sessionValues.put("location", "Unknown host");
 			}
@@ -161,7 +161,6 @@ public class LargeScaleInfoA3 extends HttpServlet {
 					+((sessionValues.get("message").equals(""))?"-": sessionValues.get("message"));
 
 			a2Cookie = new Cookie(a2CookieName, cookieVal);
-			//			response.addCookie(a2Cookie);
 		}
 
 		//Add cookie to response regardless, as it always contains new expiration and version information
@@ -242,7 +241,7 @@ public class LargeScaleInfoA3 extends HttpServlet {
 			} else if(cmd.equals("Refresh")){ //Update relevant session's expiration 
 				System.out.println("Refresh command");
 				
-				System.out.println("SAMPLE RPC CALL " + rpcp.getMembersClient(3, null, null).toString());
+				//System.out.println("SAMPLE RPC CALL " + rpcp.getMembersClient(3, null, null).toString());
 
 				cookieVal+="_"+"-";
 			} 
@@ -386,7 +385,7 @@ public class LargeScaleInfoA3 extends HttpServlet {
 	}	
 
 	/*cookieVal is the string used as the value of a Cookie
-	 *Includes, in this exact order: sessionID, version, location, expiration-timestamp, message
+	 *Includes, in this exact order: sessionID, version, location (arbitrarily long)
 	 *Each information of the cookie is in the following format: 'key=value,'
 	 *parseCookieValue parses the string into a ConcurrentHashMap
 	 */
@@ -399,14 +398,10 @@ public class LargeScaleInfoA3 extends HttpServlet {
 		}
 		parsed.put("sessionID", underscoreParsed[0]+"_"+underscoreParsed[1]+"_"+underscoreParsed[2]);
 		parsed.put("version", underscoreParsed[3]);
-		parsed.put("location", underscoreParsed[4]+"_"+underscoreParsed[5]+"_"+underscoreParsed[6]+"_"+underscoreParsed[7]);
-		parsed.put("expiration-timestamp", underscoreParsed[8]);
-
-		if ((underscoreParsed.length < 9) || (underscoreParsed[9].equals("-"))){
-			parsed.put("message", "");
-		}
-		else{
-			parsed.put("message", underscoreParsed[9]);
+		
+		for (int i = 4; i < underscoreParsed.length; i = i + 2){
+			String key = "IPP_" + (i-3); //start at IPP_1
+			parsed.put(key, underscoreParsed[i] + "_" + underscoreParsed[i+1]);
 		}
 
 		System.out.println(parsed);

@@ -1,4 +1,3 @@
-
 package server;
 
 import java.io.ByteArrayOutputStream;
@@ -23,7 +22,15 @@ public class RPCProtocol {
 	//Hashtable of sessionIDs to a table of information on their message, location, and expiration data.
 	ConcurrentHashMap<String, ConcurrentHashMap<String, String>> sessionTable = new ConcurrentHashMap<String, ConcurrentHashMap<String, String>>();
 	
-	//Set of known servers, their ips and corresponding listening ports
+	/**
+	 * Member-set: Set of known servers, their ips and corresponding listening ports
+	 * Rules include:
+	 * 		(1) An IPP is inserted into the mbrSet whenever an RPC request or reply message is received 
+	 * 		    directly from that IPP. This can be implemented at a very low level, since the Java 
+	 * 		    DatagramPacket class has methods that return the sender’s IP and port.
+	 * 		(2) An IPP is removed from the MbrSet whenever an RPC sent to that IPP times out.
+	 * 		(3) An IPP that is IPPprimary or IPPbackup in a received session-cookie is inserted into the MbrSet.
+	*/
 	ArrayList<ConcurrentHashMap<String, String>> mbrSet = new ArrayList<ConcurrentHashMap<String, String>>();
 	
 	//Deliminator, using pound since underscore is used in location tracking for sessions
@@ -110,7 +117,7 @@ public class RPCProtocol {
 	 * @param discard_time, the expiration time of the session
 	 * @param destAddr, destination ip address (null for all mbrSet)
 	 * @param destPort, destination port (null for all mbrSet)
-	 * @return The reply is just an acknowledgement or failure message
+	 * @return The reply is just an acknowledgement (operation id -> non null) or failure message (null)
 	 */
 	
 	public String sessionWriteClient(String SID, String version, String data, String discard_time, String destAddr, String destPort){
@@ -130,7 +137,7 @@ public class RPCProtocol {
 	 * @param version, version number of the session
 	 * @param destAddr, destination ip address (null for all mbrSet)
 	 * @param destPort, destination port (null for all mbrSet)
-	 * @return, acknowledgment or failure message
+	 * @return, The reply is just an acknowledgement (operation id -> non null) or failure message (null)
 	 */
 	public String sessionDeleteClient(String SID, String version, String destAddr, String destPort){
 		String s = Operation.SessionDelete.id + delim + SID + delim + version + delim;
@@ -373,6 +380,7 @@ public class RPCProtocol {
 				serverPort = rpcSocket.getLocalPort();
 				
 				//REMOVE AFTER TESTING, THIS ADDS ONES SELF TO MBRSET
+				 //ip added is a hashmap that stores server stores the server's IP addr and port 
 				mbrSet.add(ipToConcurrentHashMap(InetAddress.getLocalHost().getHostAddress(),serverPort));
 			} catch (UnknownHostException e) {
 				e.printStackTrace();
