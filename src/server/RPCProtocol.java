@@ -41,7 +41,15 @@ public class RPCProtocol {
 	
 	//UDP RPC Listening Server
 	private RPCServer rpcs;
+
+	//Length for an RPC call to timeout
+	private int timeout_length = 1000;
 		
+	/**
+	 * 
+	 * @param sessionTable - <session_ID, sessionValues(hashmap with keys: version, message, expiration_time, location)>
+	 * @param mbrSet - each member (cell in ArrayList) has a hashmap describing its ip addr and port 
+	 */
 	@SuppressWarnings("unchecked")
 	public RPCProtocol(ConcurrentHashMap<String, ConcurrentHashMap<String, String>> sessionTable, ArrayList<ConcurrentHashMap<String, String>> mbrSet){
 		
@@ -54,20 +62,6 @@ public class RPCProtocol {
 		RPCServer rpcs2 = new RPCServer();
 		RPCServer rpcs3 = new RPCServer();
 		
-		//REMOVE AFTER TESTING, THIS REMOVES ONES SELF TO MBRSET
-		/*for(ConcurrentHashMap<String, String> ip : (ArrayList<ConcurrentHashMap<String, String>>)mbrSet.clone()){
-			try {
-				if(ip.equals(ipToConcurrentHashMap(InetAddress.getLocalHost().getHostAddress(), Integer.parseInt(rpcs.getLocalPort())))){
-					mbrSet.remove(ip);
-					print("Removed listining rpcs port");
-				}
-			} catch (NumberFormatException e) {
-				e.printStackTrace();
-			} catch (UnknownHostException e) {
-				e.printStackTrace();
-			}
-		}
-		print(mbrSet.toString());*/
 	}
 	
 	private void print(String s){
@@ -126,6 +120,12 @@ public class RPCProtocol {
 			return new String(RPCClient(s, destAddr, destPort).getData(), "UTF-8").split(delim)[1];
 		} catch (UnsupportedEncodingException e) {
 			e.printStackTrace();
+		} catch (SocketTimeoutException e){
+			return null;
+		} catch (InterruptedIOException e) {
+			return null;
+		} catch(NullPointerException e){
+			return null;
 		}
 		return null;
 	}
@@ -142,9 +142,15 @@ public class RPCProtocol {
 	public String sessionDeleteClient(String SID, String version, String destAddr, String destPort){
 		String s = Operation.SessionDelete.id + delim + SID + delim + version + delim;
 		try {
-			return new String(RPCClient(s, destAddr, destPort).getData(), "UTF-8").split(delim)[1];
+			String responce = new String(RPCClient(s, destAddr, destPort).getData(), "UTF-8");
+			print("RESPONCE " + responce);
+			return responce.split(delim)[1];
 		} catch (UnsupportedEncodingException e) {
 			e.printStackTrace();
+		} catch (SocketTimeoutException e){
+			return null;
+		} catch (InterruptedIOException e) {
+			return null;
 		}
 		return null;
 	}
@@ -164,6 +170,10 @@ public class RPCProtocol {
 			responceArr = (new String(RPCClient(s, destAddr, destPort).getData(), "UTF-8")).split(delim);
 		} catch (UnsupportedEncodingException e) {
 			e.printStackTrace();
+		} catch (SocketTimeoutException e){
+			return null;
+		} catch (InterruptedIOException e) {
+			return null;
 		}
 		
 		ArrayList<Hashtable<String,String>> mbrs = new ArrayList<Hashtable<String,String>>();
@@ -183,7 +193,7 @@ public class RPCProtocol {
 	}
 	
 	@SuppressWarnings("unchecked")
-	private DatagramPacket RPCClient(String s, String destAddr, String destPort){
+	private DatagramPacket RPCClient(String s, String destAddr, String destPort) throws SocketTimeoutException, InterruptedIOException {
 		//Socket for sending and receiving datagram packets, initialized in constructor
 		DatagramSocket rpcSocket = null;
 		DatagramPacket recvPkt = null;
@@ -191,8 +201,7 @@ public class RPCProtocol {
 			print("RPC Operation from client with string: " + s);
 			
 			rpcSocket = new DatagramSocket();
-			rpcSocket.setSoTimeout(10000);
-			print("TIMEOUT " + rpcSocket.getSoTimeout());
+			rpcSocket.setSoTimeout(timeout_length );
 		
 			int serverPort = rpcSocket.getLocalPort();
 			System.out.println(serverPort);
@@ -219,18 +228,14 @@ public class RPCProtocol {
 				do {
 				recvPkt.setLength(inBuf.length);
 				rpcSocket.receive(recvPkt);
-				print("GOT SOMETHInG " + new String(recvPkt.getData(), "UTF-8").split(delim)[0].split(":")[0]);
 				} //the callID in inBuf is not the expected one
 				while(!new String(recvPkt.getData(), "UTF-8").split(delim)[0].split(":")[0].equals(callID) );
-		} catch(SocketTimeoutException e){
-			print("TIMEOUT ENCOUNTERED");
-			//handleTimedOut()
-		} catch(InterruptedIOException iioe) {
+		}  catch(InterruptedIOException iioe) {
 			// timeout 
-			System.out.println("TIMED OUT RPC CALL");
+			System.out.println("INTERRUPTED RPC CLIENT CALL");
 			recvPkt = null;
 		} catch(IOException ioe) {
-			System.out.println("IO EXCEPTION RPC CALL");
+			System.out.println("IO EXCEPTION RPC CLIENT CALL");
 		// other error 
 		}
 		System.out.println("END OF RPC CALL");
@@ -263,7 +268,7 @@ public class RPCProtocol {
 		}
 		
 		String SID = dataStringArr[2];
-		String version = dataStringArr[3];
+//		String version = dataStringArr[3];
 		
 		
 		if(sessionTable.containsKey(SID)){
@@ -282,9 +287,9 @@ public class RPCProtocol {
 		}
 		
 		String SID = dataStringArr[2];
-		String version = dataStringArr[3];
-		String message = dataStringArr[4];
-		String experation = dataStringArr[5];
+//		String version = dataStringArr[3];
+//		String message = dataStringArr[4];
+//		String experation = dataStringArr[5];
 		
 		ConcurrentHashMap<String, String> sessionValues = new ConcurrentHashMap<String, String>();
 		sessionValues.put("version", dataStringArr[3]);
