@@ -119,8 +119,8 @@ public class LargeScaleInfoA3 extends HttpServlet {
 			sessionValues.put("message", "");
 			sessionValues.put("expiration-timestamp", df.format(cal.getTime()));
 			try {
-				String ip= InetAddress.getLocalHost().getHostAddress() + "_" + request.getLocalPort();
-				sessionValues.put("location", ip + "_" + "-" + "_" + "-"); //TODO replace "-" with PP(backup) IP and port
+				String ip= InetAddress.getLocalHost().getHostAddress() + "_" + request.getLocalPort(); //TODO: change origin of Port??
+				sessionValues.put("location", ip); // no backup for new cookie on new reboot
 			} catch (UnknownHostException e) {
 				sessionValues.put("location", "Unknown host");
 			}
@@ -130,12 +130,9 @@ public class LargeScaleInfoA3 extends HttpServlet {
 			sessionTable.put(sessionID + "", sessionValues);
 			String cookieVal = sessionID+"_"
 					+ sessionValues.get("version")+"_"
-					+sessionValues.get("location")+"_"
-					+sessionValues.get("expiration-timestamp")+"_"
-					+((sessionValues.get("message").equals(""))?"-": sessionValues.get("message"));
+					+sessionValues.get("location");
 
 			a2Cookie = new Cookie(a2CookieName, cookieVal);
-			//			response.addCookie(a2Cookie);
 		}
 
 		//Add cookie to response regardless, as it always contains new expiration and version information
@@ -151,7 +148,7 @@ public class LargeScaleInfoA3 extends HttpServlet {
 		session_num ++;
 		String sessionID = "";
 		try {
-			sessionID = ""+session_num+"_"+InetAddress.getLocalHost().getHostAddress() + "_" + request.getLocalPort();
+			sessionID = ""+session_num+"_"+InetAddress.getLocalHost().getHostAddress() + "_" + request.getLocalPort(); //TODO: Change origin of port??
 		} catch (UnknownHostException e) {
 			// TODO Auto-generated catch block
 			e.printStackTrace();
@@ -198,20 +195,12 @@ public class LargeScaleInfoA3 extends HttpServlet {
 			cal.add(Calendar.MINUTE, cookieDuration);
 			String newExpr =  df.format(cal.getTime());
 			sessionTable.get(sessionID).put("expiration-timestamp", newExpr);
-			cookieVal+="_"+newExpr;
-//			System.out.println("new expr time put in. cookieVal: "+cookieVal);
 
 			//Update message for session
 			if(cmd.equals("Replace")) {
 				System.out.println("Replace command");
 				//				System.out.println("String length: " + message.length());
 				sessionTable.get(sessionID).put("message", message);
-				if (message.length() == 0){
-					cookieVal += "_-";
-				}
-				else {
-					cookieVal+="_"+message;
-				}
 				
 			} else if(cmd.equals("Refresh")){ //Update relevant session's expiration 
 				System.out.println("Refresh command");
@@ -358,7 +347,7 @@ public class LargeScaleInfoA3 extends HttpServlet {
 	}	
 
 	/*cookieVal is the string used as the value of a Cookie
-	 *Includes, in this exact order: sessionID, version, location, expiration-timestamp, message
+	 *Includes, in this exact order: sessionID, version, location (arbitrarily long)
 	 *Each information of the cookie is in the following format: 'key=value,'
 	 *parseCookieValue parses the string into a ConcurrentHashMap
 	 */
@@ -371,14 +360,10 @@ public class LargeScaleInfoA3 extends HttpServlet {
 		}
 		parsed.put("sessionID", underscoreParsed[0]+"_"+underscoreParsed[1]+"_"+underscoreParsed[2]);
 		parsed.put("version", underscoreParsed[3]);
-		parsed.put("location", underscoreParsed[4]+"_"+underscoreParsed[5]+"_"+underscoreParsed[6]+"_"+underscoreParsed[7]);
-		parsed.put("expiration-timestamp", underscoreParsed[8]);
-
-		if ((underscoreParsed.length < 9) || (underscoreParsed[9].equals("-"))){
-			parsed.put("message", "");
-		}
-		else{
-			parsed.put("message", underscoreParsed[9]);
+		
+		for (int i = 4; i < underscoreParsed.length; i = i + 2){
+			String key = "IPP_" + (i-3); //start at IPP_1
+			parsed.put(key, underscoreParsed[i] + "_" + underscoreParsed[i+1]);
 		}
 
 		System.out.println(parsed);
