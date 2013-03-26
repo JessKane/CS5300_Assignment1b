@@ -22,7 +22,15 @@ public class RPCProtocol {
 	//Hashtable of sessionIDs to a table of information on their message, location, and expiration data.
 	ConcurrentHashMap<String, ConcurrentHashMap<String, String>> sessionTable = new ConcurrentHashMap<String, ConcurrentHashMap<String, String>>();
 	
-	//Set of known servers, their ips and corresponding listening ports
+	/**
+	 * Member-set: Set of known servers, their ips and corresponding listening ports
+	 * Rules include:
+	 * 		(1) An IPP is inserted into the mbrSet whenever an RPC request or reply message is received 
+	 * 		    directly from that IPP. This can be implemented at a very low level, since the Java 
+	 * 		    DatagramPacket class has methods that return the sender’s IP and port.
+	 * 		(2) An IPP is removed from the MbrSet whenever an RPC sent to that IPP times out.
+	 * 		(3) An IPP that is IPPprimary or IPPbackup in a received session-cookie is inserted into the MbrSet.
+	*/
 	ArrayList<ConcurrentHashMap<String, String>> mbrSet = new ArrayList<ConcurrentHashMap<String, String>>();
 	
 	//Deliminator, using pound since underscore is used in location tracking for sessions
@@ -83,7 +91,7 @@ public class RPCProtocol {
 	 * @param discard_time
 	 * @param destAddr, destination ip address (null for all mbrSet)
 	 * @param destPort, destination port (null for all mbrSet)
-	 * @return The reply is just an acknowledgement or failure message
+	 * @return The reply is just an acknowledgement (operation id -> non null) or failure message (null)
 	 */
 	
 	public String sessionWriteClient(String SID, String version, String data, String discard_time, String destAddr, String destPort){
@@ -103,7 +111,7 @@ public class RPCProtocol {
 	 * @param version, version number of the session
 	 * @param destAddr, destination ip address (null for all mbrSet)
 	 * @param destPort, destination port (null for all mbrSet)
-	 * @return, acknowledgment or failure message
+	 * @return, The reply is just an acknowledgement (operation id -> non null) or failure message (null)
 	 */
 	public String sessionDeleteClient(String SID, String version, String destAddr, String destPort){
 		String s = Operation.SessionDelete.id + delim + SID + delim + version + delim;
@@ -148,8 +156,10 @@ public class RPCProtocol {
 		return mbrs;
 	}
 	
+	/**
+	 * Socket for sending and receiving datagram packets, initialized in constructor
+	 */
 	private DatagramPacket RPCClient(String s, String destAddr, String destPort){
-		//Socket for sending and receiving datagram packets, initialized in constructor
 		DatagramSocket rpcSocket = null;
 		try {
 			rpcSocket = new DatagramSocket();
@@ -329,6 +339,8 @@ public class RPCProtocol {
 		private int serverPort;
 		
 		RPCServer(){
+			
+			//myip is a hashmap that stores server stores the server's IP addr and port
 			ConcurrentHashMap<String, String> myip = new ConcurrentHashMap<String, String>();
 			
 			try {
