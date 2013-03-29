@@ -1,3 +1,10 @@
+/**
+ * TODO: check if IPPprimary and IPPbackup = IPPlocal in handleCommand 
+ * TODO: add members if it appears in cookie
+ * TODO: crash button
+ * TODO: random AS generator --> fix so it doesn't repeat 
+ * TODO: HTML display (server ID, where you read request, IPPp, IPPb, session expr, discard time, and mbrset (Section 4)
+ */
 package server;
 
 
@@ -98,7 +105,8 @@ public class LargeScaleInfoA3 extends HttpServlet {
 		
 		Cookie cookie = handleCookie(request, response);
 		handleCommand(response, request, out, cookie);
-		String sessionID = parseCookieValue(cookie.getValue()).get("sessionID");
+		ConcurrentHashMap<String,String> parsed = parseCookieValue(cookie.getValue());
+		String sessionID = parsed.get("sessionID");
 
 		out.println("<html>\n<body>\n<br>&nbsp;<br>");
 		
@@ -106,10 +114,19 @@ public class LargeScaleInfoA3 extends HttpServlet {
 
 		out.println(getMessage(sessionID));
 		out.println(getForm());
-		out.println(getSessionLoc(sessionID));
-		out.println(getSessionExp(sessionID));
 		out.println(getSessionID(sessionID));
+		out.println("<u>ServerID:</u> " + getIPPLocal(rpcp));
+		out.println(getSessionExp(sessionID));
+		out.println("<p> <u>Memberset:</u> " + rpcp.mbrSet);
+		out.println("<p><u>IPP Primary:</u> " + parsed.get("IPP_1"));
+		if (parsed.containsKey("IPP_2")){
+			out.println("<p><u>IPP Backup:</u> " + parsed.get("IPP_2"));
+		}
+		else{
+			out.println("<p><u>IPP Backup:</u> none");
+		}
 
+		System.out.println(getDiscardTime(sessionID));
 		out.println("</body>\n</html>");
 	}
 
@@ -150,21 +167,14 @@ public class LargeScaleInfoA3 extends HttpServlet {
 			sessionValues.put("version", 1 +"");
 			sessionValues.put("message", "");
 			sessionValues.put("expiration-timestamp", df.format(cal.getTime()));
-			try {
-				String ip= InetAddress.getLocalHost().getHostAddress() + "_" + rpcp.getUDPLocalPort();
-				sessionValues.put("location", ip); // no backup for new cookie on new reboot
-			} catch (UnknownHostException e) {
-				sessionValues.put("location", "Unknown host");
-			}
+			String ip= getIPPLocal(rpcp);
 
 
 
 			sessionTable.put(sessionID + "", sessionValues);
 			String cookieVal = sessionID+"_"
 					+ sessionValues.get("version")+"_"
-					+sessionValues.get("location")+"_"
-					+sessionValues.get("expiration-timestamp")+"_"
-					+((sessionValues.get("message").equals(""))?"-": sessionValues.get("message"));
+					+ getIPPLocal(rpcp);
 
 			a2Cookie = new Cookie(a2CookieName, cookieVal);
 		}
@@ -181,13 +191,7 @@ public class LargeScaleInfoA3 extends HttpServlet {
 	private String getNextSessionID(HttpServletRequest request){
 		session_num ++;
 		String sessionID = "";
-		try {
-			sessionID = ""+session_num+"_"+InetAddress.getLocalHost().getHostAddress() + "_" + rpcp.getUDPLocalPort();
-		} catch (UnknownHostException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		}
-
+		sessionID = ""+session_num+"_"+getIPPLocal(rpcp);
 		return sessionID;
 	}
 
@@ -214,6 +218,7 @@ public class LargeScaleInfoA3 extends HttpServlet {
 		
 		//RPC stuff TODO 
 		
+		//-----TODO : check to see if IPP_primary or IPP_backup to see if they are equal to IPPLocal 
 		//---------(1) send sessionReadClient to IPP_primary and IPP_backup----------------
 		//IPP Primary
 		String IPP_1 = parsed.get("sessionID");
@@ -237,6 +242,7 @@ public class LargeScaleInfoA3 extends HttpServlet {
 		}
 		
 		//-----------(2)if there is a response from either, use found_Version and new data from now onwards---------------
+		//newData = message. If found_Version more recent than your version, then use newData as message
 		
 		if (readResponse.equals("notFound")){
 			/*TODO: you should return an HTML page with a message saying the session timed out 
@@ -310,6 +316,9 @@ public class LargeScaleInfoA3 extends HttpServlet {
 				Calendar discard_time_cal = Calendar.getInstance();
 				discard_time_cal.add(Calendar.SECOND, SESSION_TIMEOUT_SECS + 2*delta + tau);
 				String discard_time =  df.format(discard_time_cal.getTime());
+				sessionTable.get(sessionID).put("discard_time", discard_time); //TODO: check: does discardTime get put into SSTbl?
+				System.out.println("Discard time: " + sessionTable.get(sessionID).get("discard_time"));
+
 				
 				//TODO: check: data = message??
 				System.out.println("MESSAGE " + message);
@@ -377,27 +386,10 @@ public class LargeScaleInfoA3 extends HttpServlet {
 	}
 
 	/*
-	 * Creates the html displaying the hashed location of the WQ server storing this session's data
-	 */
-	private String getSessionLoc(String sessionID) {
-		String out = "<p>Session on ";
-
-		if((sessionID != null) && sessionTable.containsKey(sessionID)){
-			out += sessionTable.get(sessionID).get("location");
-		} else{
-			out += "Issue with cookies";
-		}
-
-		out += "</p>";
-
-		return out;
-	}
-
-	/*
 	 * Creates the html displaying the hashed expiration timestamp for the session
 	 */
 	private String getSessionExp(String sessionID) {
-		String out = "<p>Expires ";
+		String out = "<p><u>Expires</u>: ";
 
 		if((sessionID != null) && sessionTable.containsKey(sessionID)){
 			out += sessionTable.get(sessionID).get("expiration-timestamp");			
@@ -449,8 +441,26 @@ public class LargeScaleInfoA3 extends HttpServlet {
 	 * print sessionID on HTML page
 	 * for debugging purposes
 	 */
+	private String getDiscardTime(String sessionID) {
+		String out = "<p><u>Discard Time:</u> ";
+
+		if((sessionID != null) && sessionTable.containsKey(sessionID)){
+			out += sessionTable.get(sessionID).get("discard_time");
+		} else{
+			out += "Issue with cookies";
+		}
+
+		out += "</p>";
+
+		return out;
+	}	
+	
+	/*
+	 * print sessionID on HTML page
+	 * for debugging purposes
+	 */
 	private String getSessionID(String sessionID) {
-		String out = "<p>SessionID: ";
+		String out = "<p><u>SessionID:</u> ";
 
 		if((sessionID != null) && sessionTable.containsKey(sessionID)){
 			out += sessionID;
@@ -488,6 +498,17 @@ public class LargeScaleInfoA3 extends HttpServlet {
 		System.out.println(parsed);
 
 		return parsed;
+	}
+	
+	private String getIPPLocal(RPCProtocol rpcp){
+		String ip = "";
+		try {
+			ip = InetAddress.getLocalHost().getHostAddress() + "_" + rpcp.getUDPLocalPort();
+		} catch (UnknownHostException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+		return ip;
 	}
 
 	/*
