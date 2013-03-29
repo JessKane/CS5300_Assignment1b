@@ -1,4 +1,3 @@
-
 package server;
 
 import java.io.ByteArrayOutputStream;
@@ -9,6 +8,7 @@ import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
 import java.net.SocketException;
+import java.net.SocketTimeoutException;
 import java.net.UnknownHostException;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -22,7 +22,15 @@ public class RPCProtocol {
 	//Hashtable of sessionIDs to a table of information on their message, location, and expiration data.
 	ConcurrentHashMap<String, ConcurrentHashMap<String, String>> sessionTable = new ConcurrentHashMap<String, ConcurrentHashMap<String, String>>();
 	
-	//Set of known servers, their ips and corresponding listening ports
+	/**
+	 * Member-set: Set of known servers, their ips and corresponding listening ports
+	 * Rules include:
+	 * 		(1) An IPP is inserted into the mbrSet whenever an RPC request or reply message is received 
+	 * 		    directly from that IPP. This can be implemented at a very low level, since the Java 
+	 * 		    DatagramPacket class has methods that return the sender’s IP and port.
+	 * 		(2) An IPP is removed from the MbrSet whenever an RPC sent to that IPP times out.
+	 * 		(3) An IPP that is IPPprimary or IPPbackup in a received session-cookie is inserted into the MbrSet.
+	*/
 	ArrayList<ConcurrentHashMap<String, String>> mbrSet = new ArrayList<ConcurrentHashMap<String, String>>();
 	
 	//Deliminator, using pound since underscore is used in location tracking for sessions
@@ -30,14 +38,30 @@ public class RPCProtocol {
 	
 	//Call id number tracker
 	private static int callID_num = 0;
+	
+	//UDP RPC Listening Server
+	private RPCServer rpcs;
+
+	//Length for an RPC call to timeout
+	private int timeout_length = 1000;
 		
+	/**
+	 * 
+	 * @param sessionTable - <session_ID, sessionValues(hashmap with keys: version, message, expiration_time, location)>
+	 * @param mbrSet - each member (cell in ArrayList) has a hashmap describing its ip addr and port 
+	 */
+	@SuppressWarnings("unchecked")
 	public RPCProtocol(ConcurrentHashMap<String, ConcurrentHashMap<String, String>> sessionTable, ArrayList<ConcurrentHashMap<String, String>> mbrSet){
 		
 		this.sessionTable = sessionTable;
 		this.mbrSet = mbrSet;
+		
+		rpcs = new RPCServer();
+		//Temporary listening servers
 		RPCServer rpcs1 = new RPCServer();
 		RPCServer rpcs2 = new RPCServer();
 		RPCServer rpcs3 = new RPCServer();
+		
 	}
 	
 	private void print(String s){
@@ -47,6 +71,10 @@ public class RPCProtocol {
 	private String getCallID(){
 		callID_num += 1;
 		return callID_num + "";
+	}
+	
+	public String getUDPLocalPort(){
+		return rpcs.getLocalPort();
 	}
 	
 	/**
@@ -75,15 +103,15 @@ public class RPCProtocol {
 	}
 	
 	/**
-	 * 
+	 * Writes a session and its information to a destination's sessionTable.
 	 * 
 	 * @param SID, id of the session
 	 * @param version, version number of the session
 	 * @param data, message data to be stored for this session
-	 * @param discard_time
+	 * @param discard_time, the expiration time of the session
 	 * @param destAddr, destination ip address (null for all mbrSet)
 	 * @param destPort, destination port (null for all mbrSet)
-	 * @return The reply is just an acknowledgement or failure message
+	 * @return The reply is just an acknowledgement (operation id -> non null) or failure message (null)
 	 */
 	
 	public String sessionWriteClient(String SID, String version, String data, String discard_time, String destAddr, String destPort){
@@ -92,6 +120,12 @@ public class RPCProtocol {
 			return new String(RPCClient(s, destAddr, destPort).getData(), "UTF-8").split(delim)[1];
 		} catch (UnsupportedEncodingException e) {
 			e.printStackTrace();
+		} catch (SocketTimeoutException e){
+			return null;
+		} catch (InterruptedIOException e) {
+			return null;
+		} catch(NullPointerException e){
+			return null;
 		}
 		return null;
 	}
@@ -103,14 +137,20 @@ public class RPCProtocol {
 	 * @param version, version number of the session
 	 * @param destAddr, destination ip address (null for all mbrSet)
 	 * @param destPort, destination port (null for all mbrSet)
-	 * @return, acknowledgment or failure message
+	 * @return, The reply is just an acknowledgement (operation id -> non null) or failure message (null)
 	 */
 	public String sessionDeleteClient(String SID, String version, String destAddr, String destPort){
 		String s = Operation.SessionDelete.id + delim + SID + delim + version + delim;
 		try {
-			return new String(RPCClient(s, destAddr, destPort).getData(), "UTF-8").split(delim)[1];
+			String responce = new String(RPCClient(s, destAddr, destPort).getData(), "UTF-8");
+			print("RESPONCE " + responce);
+			return responce.split(delim)[1];
 		} catch (UnsupportedEncodingException e) {
 			e.printStackTrace();
+		} catch (SocketTimeoutException e){
+			return null;
+		} catch (InterruptedIOException e) {
+			return null;
 		}
 		return null;
 	}
@@ -130,6 +170,10 @@ public class RPCProtocol {
 			responceArr = (new String(RPCClient(s, destAddr, destPort).getData(), "UTF-8")).split(delim);
 		} catch (UnsupportedEncodingException e) {
 			e.printStackTrace();
+		} catch (SocketTimeoutException e){
+			return null;
+		} catch (InterruptedIOException e) {
+			return null;
 		}
 		
 		ArrayList<Hashtable<String,String>> mbrs = new ArrayList<Hashtable<String,String>>();
@@ -148,27 +192,25 @@ public class RPCProtocol {
 		return mbrs;
 	}
 	
-	private DatagramPacket RPCClient(String s, String destAddr, String destPort){
+	@SuppressWarnings("unchecked")
+	private DatagramPacket RPCClient(String s, String destAddr, String destPort) throws SocketTimeoutException, InterruptedIOException {
 		//Socket for sending and receiving datagram packets, initialized in constructor
 		DatagramSocket rpcSocket = null;
-		try {
-			rpcSocket = new DatagramSocket();
-		} catch (SocketException e1) {
-			e1.printStackTrace();
-		}
-		int serverPort = rpcSocket.getLocalPort();
-		System.out.println(serverPort);
-		
-		String callID = getCallID();
-		s = callID + delim + s;
-		
-		ByteArrayOutputStream outputStream = new ByteArrayOutputStream( );
-		
 		DatagramPacket recvPkt = null;
-		
-		System.out.println("RPC SESSION READ CLIENT");
-		
 		try {
+			print("RPC Operation from client with string: " + s);
+			
+			rpcSocket = new DatagramSocket();
+			rpcSocket.setSoTimeout(timeout_length );
+		
+			int serverPort = rpcSocket.getLocalPort();
+			System.out.println(serverPort);
+			
+			String callID = getCallID();
+			s = callID + ":" + rpcSocket.getLocalPort() + delim + s;
+			
+			ByteArrayOutputStream outputStream = new ByteArrayOutputStream( );
+			
 			outputStream.write( s.getBytes() );
 
 			byte[] outBuf = outputStream.toByteArray( );
@@ -176,7 +218,8 @@ public class RPCProtocol {
 			if(destAddr != null && destPort != null){
 				clientSendPkt(outBuf, destAddr, destPort, rpcSocket);
 			} else{
-				for( @SuppressWarnings("rawtypes") ConcurrentHashMap<String, String> mbr : mbrSet  ) {
+				for( @SuppressWarnings("rawtypes") ConcurrentHashMap<String, String> mbr : 
+					(ArrayList<ConcurrentHashMap<String, String>>)mbrSet.clone()  ) {
 					clientSendPkt(outBuf, (String) mbr.get("ip"), (String) mbr.get("port"), rpcSocket);
 				}
 			}
@@ -186,15 +229,15 @@ public class RPCProtocol {
 				recvPkt.setLength(inBuf.length);
 				rpcSocket.receive(recvPkt);
 				} //the callID in inBuf is not the expected one
-				while(!new String(recvPkt.getData(), "UTF-8").split(delim)[0].equals(callID) );
-		} catch(InterruptedIOException iioe) {
+				while(!new String(recvPkt.getData(), "UTF-8").split(delim)[0].split(":")[0].equals(callID) );
+		}  catch(InterruptedIOException iioe) {
 			// timeout 
-			System.out.println("TIMED OUT RPC CALL");
+			System.out.println("INTERRUPTED RPC CLIENT CALL");
 			recvPkt = null;
 		} catch(IOException ioe) {
-			System.out.println("IO EXCEPTION RPC CALL");
+			System.out.println("IO EXCEPTION RPC CLIENT CALL");
 		// other error 
-		} 
+		}
 		System.out.println("END OF RPC CALL");
 		return recvPkt;
 	}
@@ -225,7 +268,7 @@ public class RPCProtocol {
 		}
 		
 		String SID = dataStringArr[2];
-		String version = dataStringArr[3];
+//		String version = dataStringArr[3];
 		
 		
 		if(sessionTable.containsKey(SID)){
@@ -244,9 +287,9 @@ public class RPCProtocol {
 		}
 		
 		String SID = dataStringArr[2];
-		String version = dataStringArr[3];
-		String message = dataStringArr[4];
-		String experation = dataStringArr[5];
+//		String version = dataStringArr[3];
+//		String message = dataStringArr[4];
+//		String experation = dataStringArr[5];
 		
 		ConcurrentHashMap<String, String> sessionValues = new ConcurrentHashMap<String, String>();
 		sessionValues.put("version", dataStringArr[3]);
@@ -324,44 +367,57 @@ public class RPCProtocol {
 		return out;
 	}
 	
+	public ConcurrentHashMap<String, String> ipToConcurrentHashMap(String ip, int serverPort){
+		ConcurrentHashMap<String, String> myip = new ConcurrentHashMap<String, String>();
+		myip.put("ip", ip);
+		myip.put("port", serverPort + "");
+		return myip;
+	}
+	
 	private class RPCServer extends Thread{
 		private DatagramSocket rpcSocket;
 		private int serverPort;
 		
 		RPCServer(){
-			ConcurrentHashMap<String, String> myip = new ConcurrentHashMap<String, String>();
 			
 			try {
 				rpcSocket = new DatagramSocket();
 				serverPort = rpcSocket.getLocalPort();
-				myip.put("ip", InetAddress.getLocalHost().getHostAddress());
+				
+				//REMOVE AFTER TESTING, THIS ADDS ONES SELF TO MBRSET
+				 //ip added is a hashmap that stores server stores the server's IP addr and port 
+				mbrSet.add(ipToConcurrentHashMap(InetAddress.getLocalHost().getHostAddress(),serverPort));
 			} catch (UnknownHostException e) {
 				e.printStackTrace();
 			} catch (SocketException e1) {
 				e1.printStackTrace();
 			}
-			myip.put("port", serverPort + "");
-			mbrSet.add(myip);
 			
+			System.out.println("rpc server on port " + serverPort);
 			start();
 		}
 		
+		
+		public String getLocalPort() {
+			return serverPort + "";
+		}
+
 		public void run(){
 			while(true) {
 			    byte[] inBuf = new byte[Byte.MAX_VALUE];
 			    DatagramPacket recvPkt = new DatagramPacket(inBuf, inBuf.length);
 			    try {
-			    	System.out.println("rpc server on port " + serverPort);
 					rpcSocket.receive(recvPkt);
 				
 				    InetAddress returnAddr = recvPkt.getAddress();
-				    int returnPort = recvPkt.getPort();
 				    
 				    // here inBuf contains the callID and operationCode
 				    String inData = new String(recvPkt.getData(), "UTF-8");
 				    print("RPC Server Command Recieved " + inData);
 				    int operationCode = Integer.parseInt(inData.split(delim)[1]); // get requested operationCode
 				    String callID = inData.split(delim)[0] + delim;
+				    String returnPort = callID.split(":")[1].replace(delim, "");
+				    checkForMbrship(returnAddr, returnPort);
 				    byte[] outBuf = null;
 				    	
 			    	if(operationCode == Operation.SessionRead.getId()){
@@ -382,7 +438,14 @@ public class RPCProtocol {
 			    	}
 			    	
 				    DatagramPacket sendPkt = new DatagramPacket(outBuf, outBuf.length,
-				    returnAddr, returnPort);
+				    returnAddr, Integer.parseInt(returnPort));
+				    
+				    //TESTING FOR TIMEOUT
+				    /*try {
+						sleep(100);
+					} catch (InterruptedException e) {
+						e.printStackTrace();
+					}*/
 					rpcSocket.send(sendPkt);
 					
 				} catch (IOException e) {
@@ -391,6 +454,24 @@ public class RPCProtocol {
 					break;
 				}
 			  }
+		}
+	}
+	
+	/*
+	 * Checks if an encountered ip address is in the mbrSet
+	 */
+	private void checkForMbrship(InetAddress returnAddr, String returnPort){
+		boolean flag = false;
+		for (ConcurrentHashMap<String, String> mbr: mbrSet){
+			if(mbr.get("ip").equals(returnAddr.getHostAddress()) && mbr.get("port").equals(returnPort)){
+				flag = true;
+			}
+		}
+		if (!flag){
+			ConcurrentHashMap<String, String> toInsert = new ConcurrentHashMap<String, String>();
+			toInsert.put("ip", returnAddr.getHostAddress());
+			toInsert.put("port", returnPort);
+			mbrSet.add(toInsert);
 		}
 	}
 	

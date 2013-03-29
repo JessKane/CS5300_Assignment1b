@@ -17,6 +17,8 @@ import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Date;
+import java.util.Hashtable;
+import java.util.Random;
 import java.util.concurrent.ConcurrentHashMap;
 
 import javax.servlet.ServletException;
@@ -31,12 +33,38 @@ public class LargeScaleInfoA3 extends HttpServlet {
 	//Servlet metadata
 	private static final long serialVersionUID = 1L;
 
-	//Cookie expiration duration, in minutes
-	private static final int cookieDuration = 1;
+	// minimum amount of time, in seconds, a session is required to remain accessible after the last client request
+	private static final int SESSION_TIMEOUT_SECS = 60;
 
 	private static int session_num = 0;
+	
+	//Thread safe form of the simple date format
+	public static class DateFormatThreadSafe {
 
-	private static final DateFormat df = new SimpleDateFormat("yyyy/MM/dd HH:mm:ss");
+		  private static final ThreadLocal<DateFormat> df
+		                 = new ThreadLocal<DateFormat>(){
+		    @Override
+		    protected DateFormat initialValue() {
+		        return new SimpleDateFormat("yyyy/MM/dd HH:mm:ss");
+		    }
+		  };
+
+	  public Date parse(String source)
+	                     throws ParseException{
+	    Date d = df.get().parse(source);
+	    return d;
+	  }
+		  
+		public String format(Date time) {
+			 String d = df.get().format(time);
+			 return d;
+		}
+		  
+	}
+	private static final DateFormatThreadSafe df = new DateFormatThreadSafe();
+	
+	private static final int delta = 2; //used for expr and discard time
+	private static final int tau = 2;		//used for discard time
 
 
 	//ConcurrentHashMap of sessionIDs to a table of information on their message, location, and expiration data.
@@ -68,10 +96,13 @@ public class LargeScaleInfoA3 extends HttpServlet {
 	public void doGet(HttpServletRequest request,HttpServletResponse response)	throws ServletException, IOException {
 		PrintWriter out = response.getWriter();
 		
-		String sessionID = handleCookie(request, response);
-		handleCommand(response, request, out, sessionID);
+		Cookie cookie = handleCookie(request, response);
+		handleCommand(response, request, out, cookie);
+		String sessionID = parseCookieValue(cookie.getValue()).get("sessionID");
 
 		out.println("<html>\n<body>\n<br>&nbsp;<br>");
+		
+		//PRINT SESSIONID
 
 		out.println(getMessage(sessionID));
 		out.println(getForm());
@@ -85,7 +116,7 @@ public class LargeScaleInfoA3 extends HttpServlet {
 	/*
 	 * Examines cookies from the request to either extract or generate a new sessionID.  Additionally attaches a cookie to the response.
 	 */
-	private String handleCookie(HttpServletRequest request, HttpServletResponse response) {
+	private Cookie handleCookie(HttpServletRequest request, HttpServletResponse response) {
 		String sessionID = "-1";
 		Cookie a2Cookie = null;
 
@@ -106,21 +137,22 @@ public class LargeScaleInfoA3 extends HttpServlet {
 		}
 
 		//If no cookie was found, generate a new one
+		//Also fill sessionTable with new sessionID entry 
 		if (a2Cookie == null) { 		 
 			System.out.println(" -- new cookie --");
 			sessionID = getNextSessionID(request);
 
 			// create new timestamp
 			Calendar cal = Calendar.getInstance();
-			cal.add(Calendar.MINUTE, cookieDuration);
+			cal.add(Calendar.SECOND, SESSION_TIMEOUT_SECS);
 
 			ConcurrentHashMap<String, String> sessionValues = new ConcurrentHashMap<String, String>();
 			sessionValues.put("version", 1 +"");
 			sessionValues.put("message", "");
 			sessionValues.put("expiration-timestamp", df.format(cal.getTime()));
 			try {
-				String ip= InetAddress.getLocalHost().getHostAddress() + "_" + request.getLocalPort();
-				sessionValues.put("location", ip + "_" + "-" + "_" + "-"); //TODO replace "-" with PP(backup) IP and port
+				String ip= InetAddress.getLocalHost().getHostAddress() + "_" + rpcp.getUDPLocalPort();
+				sessionValues.put("location", ip); // no backup for new cookie on new reboot
 			} catch (UnknownHostException e) {
 				sessionValues.put("location", "Unknown host");
 			}
@@ -135,13 +167,12 @@ public class LargeScaleInfoA3 extends HttpServlet {
 					+((sessionValues.get("message").equals(""))?"-": sessionValues.get("message"));
 
 			a2Cookie = new Cookie(a2CookieName, cookieVal);
-			//			response.addCookie(a2Cookie);
 		}
 
 		//Add cookie to response regardless, as it always contains new expiration and version information
 		response.addCookie(a2Cookie);
 		System.out.println("cookie val: " + a2Cookie.getValue());
-		return sessionID;
+		return a2Cookie;
 	}
 
 	/*
@@ -151,7 +182,7 @@ public class LargeScaleInfoA3 extends HttpServlet {
 		session_num ++;
 		String sessionID = "";
 		try {
-			sessionID = ""+session_num+"_"+InetAddress.getLocalHost().getHostAddress() + "_" + request.getLocalPort();
+			sessionID = ""+session_num+"_"+InetAddress.getLocalHost().getHostAddress() + "_" + rpcp.getUDPLocalPort();
 		} catch (UnknownHostException e) {
 			// TODO Auto-generated catch block
 			e.printStackTrace();
@@ -162,11 +193,61 @@ public class LargeScaleInfoA3 extends HttpServlet {
 
 	/*
 	 * Examines the request for the 'cmd' value, and performs the pertinent action
+	 * After action is completed, server generates a new cookie to return to client
 	 */
-	private void handleCommand(HttpServletResponse response, HttpServletRequest request, PrintWriter out, String sessionID){
+	private void handleCommand(HttpServletResponse response, HttpServletRequest request, PrintWriter out, Cookie c){
+		ConcurrentHashMap<String,String> parsed= parseCookieValue(c.getValue());
+		String sessionID = parsed.get("sessionID");
+		String oldVersion = sessionTable.get(sessionID).get("version"); 		//TODO: get new version number from sessionRead data?
 		String cmd = request.getParameter("cmd");
 		String message = request.getParameter("NewText");
-
+		
+		//local IP and port
+		String local_IP = null;
+		try {
+			local_IP = InetAddress.getLocalHost().getHostAddress();
+		} catch (UnknownHostException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+		String local_port = "" + rpcp.getUDPLocalPort();		
+		
+		//RPC stuff TODO 
+		
+		//---------(1) send sessionReadClient to IPP_primary and IPP_backup----------------
+		//IPP Primary
+		String IPP_1 = parsed.get("sessionID");
+		String[] IPP1_split = IPP_1.split("_");
+		String IP_addr_1 = IPP1_split[0];
+		String port_1 = IPP1_split[1];
+		
+		String readResponse = rpcp.sessionReadClient(sessionID, oldVersion, IP_addr_1, port_1);
+		System.out.println("RPC Read response: " +  readResponse);
+		
+		//IPP backup
+		if (readResponse.equals("notFound")){
+			if (parsed.containsKey("IPP_2")){
+				String IPP_2 = parsed.get("sessionID");
+				String[] IPP2_split = IPP_2.split("_");
+				String IP_addr_2 = IPP2_split[0];
+				String port_2 = IPP2_split[1];
+				
+				readResponse =  rpcp.sessionReadClient(sessionID, oldVersion, IP_addr_2, port_2);
+			}
+		}
+		
+		//-----------(2)if there is a response from either, use found_Version and new data from now onwards---------------
+		
+		if (readResponse.equals("notFound")){
+			/*TODO: you should return an HTML page with a message saying the session timed out 
+			or failed (you will be able to tell the difference between these in some but possibly not all cases), 
+			and make sure the cookie for the timed-out-or-lost session is deleted from the browser.*/
+		}
+		else{
+			//TODO
+			//parse the data returned by IPP primary or backup, and use this data from now onwards
+		}
+		
 		//Don't do anything if no command was provided
 		if(cmd == null){
 			return;
@@ -174,7 +255,10 @@ public class LargeScaleInfoA3 extends HttpServlet {
 		//Destroy relevant session 
 		else if(cmd.equals("LogOut")){
 			System.out.println("LogOut command");
-			sessionTable.remove(sessionID);
+			
+			rpcp.sessionDeleteClient(sessionID, oldVersion, local_IP, local_port);
+			sessionTable.remove(sessionID); //TODO: change to rpcp.sessionDeleteClient 
+			
 			out.write("<html>\n<body>\n<br>&nbsp;\n<br><big><big><b>Bye!<br>&nbsp;<br>\n</b></big></big>\n</body>\n</html>");
 			out.close();
 		} else if (cmd.equals("Replace") && message.length() > 512) {
@@ -183,47 +267,67 @@ public class LargeScaleInfoA3 extends HttpServlet {
 		} else {
 			String cookieVal=sessionID;
 			//update version number
-			int oldVersion = Integer.parseInt(sessionTable.get(sessionID).get("version"));
-			String newVersion = ((Integer)(oldVersion + 1)).toString();
+			String newVersion = ((Integer)(Integer.parseInt(oldVersion) + 1)).toString();
 			sessionTable.get(sessionID).put("version", newVersion);
 			cookieVal += "_"+ newVersion;
 //			System.out.println("new version put in. cookieVal: "+cookieVal);
 
-			//update location (TODO for now it stays the same)
-			cookieVal += "_" + sessionTable.get(sessionID).get("location");
-//			System.out.println("new location put in. cookieVal: "+cookieVal);
 
 			//update expiration timestamp
 			Calendar cal = Calendar.getInstance();
-			cal.add(Calendar.MINUTE, cookieDuration);
+			cal.add(Calendar.SECOND, SESSION_TIMEOUT_SECS);
 			String newExpr =  df.format(cal.getTime());
 			sessionTable.get(sessionID).put("expiration-timestamp", newExpr);
-			cookieVal+="_"+newExpr;
-//			System.out.println("new expr time put in. cookieVal: "+cookieVal);
 
 			//Update message for session
 			if(cmd.equals("Replace")) {
 				System.out.println("Replace command");
 				//				System.out.println("String length: " + message.length());
 				sessionTable.get(sessionID).put("message", message);
-				if (message.length() == 0){
-					cookieVal += "_-";
-				}
-				else {
-					cookieVal+="_"+message;
-				}
 				
-			} else if(cmd.equals("Refresh")){ //Update relevant session's expiration 
+			} else if(cmd.equals("Refresh")){
 				System.out.println("Refresh command");
 				
-				//System.out.println("SAMPLE RPC CALL " + rpcp.getMembersClient(3, null, null).toString());
-
-				cookieVal+="_"+"-";
+				//Maintain stored message for session to be displayed
+				message = sessionTable.get(sessionID).get("message");
 			} 
 
 //			System.out.println("new message put in. cookieVal: "+cookieVal);
 			
-			//make a new cookie for the request
+			//-----(3) sessionWrite to random AS in memberset---------
+			
+			/*TODO: use mbrset, or this: 
+			 * ArrayList<Hashtable<String,String>> random_mbrset = rpcp.getMembersClient(20, IP_addr_1, port_1);
+			 */
+			
+			Random rand = new Random();
+			String write_result = null;
+			String final_AS_ip = ""; 		//will hold the IP address of IPPbackup
+			String final_AS_port = "";		//will hold the port number of IPPbackup
+			//try until you get a response 
+			while (write_result == null){
+				ConcurrentHashMap<String,String> random_AS = mbrSet.get(rand.nextInt(mbrSet.size())); //get random AS
+				Calendar discard_time_cal = Calendar.getInstance();
+				discard_time_cal.add(Calendar.SECOND, SESSION_TIMEOUT_SECS + 2*delta + tau);
+				String discard_time =  df.format(discard_time_cal.getTime());
+				
+				//TODO: check: data = message??
+				System.out.println("MESSAGE " + message);
+				write_result = rpcp.sessionWriteClient(sessionID, newVersion, message, discard_time, random_AS.get("ip"), random_AS.get("port"));
+				
+				if (write_result != null){
+					final_AS_ip = random_AS.get("ip");
+					final_AS_port = random_AS.get("port");
+				}
+			}
+		
+			//-------(4) make a new cookie with IPP primary and backup----------
+			//cookieVal so far only has session_ID and version number
+			
+			String IPP_local = local_IP  + "_" + local_port;
+			String IPP_newBackup = final_AS_ip + "_" + final_AS_port;
+			cookieVal += "_" + IPP_local + "_" + IPP_newBackup;				
+			
 			System.out.println("new cookie for request: " + cookieVal);
 			Cookie newCookie = new Cookie(a2CookieName, cookieVal);
 			response.addCookie(newCookie);
@@ -257,7 +361,7 @@ public class LargeScaleInfoA3 extends HttpServlet {
 
 		if((sessionID != null) && sessionTable.containsKey(sessionID)){
 			//Check if there is anything but the default blank message
-			if(sessionTable.get(sessionID).get("message") != ""){				
+			if(!sessionTable.get(sessionID).get("message").equals("")){				
 				out += sessionTable.get(sessionID).get("message");
 			} else{
 				out += "Hello, User!";
@@ -304,6 +408,8 @@ public class LargeScaleInfoA3 extends HttpServlet {
 				expDate = df.parse(expirationDate);
 			} catch (ParseException e) {
 				System.out.println("Cookie Date Parse Error");
+			} catch(NumberFormatException e){
+				System.out.println("Number Format " + expirationDate);
 			}
 
 			if (expDate.after(currentDate)) {
@@ -358,7 +464,7 @@ public class LargeScaleInfoA3 extends HttpServlet {
 	}	
 
 	/*cookieVal is the string used as the value of a Cookie
-	 *Includes, in this exact order: sessionID, version, location, expiration-timestamp, message
+	 *Includes, in this exact order: sessionID, version, location (arbitrarily long)
 	 *Each information of the cookie is in the following format: 'key=value,'
 	 *parseCookieValue parses the string into a ConcurrentHashMap
 	 */
@@ -371,14 +477,12 @@ public class LargeScaleInfoA3 extends HttpServlet {
 		}
 		parsed.put("sessionID", underscoreParsed[0]+"_"+underscoreParsed[1]+"_"+underscoreParsed[2]);
 		parsed.put("version", underscoreParsed[3]);
-		parsed.put("location", underscoreParsed[4]+"_"+underscoreParsed[5]+"_"+underscoreParsed[6]+"_"+underscoreParsed[7]);
-		parsed.put("expiration-timestamp", underscoreParsed[8]);
-
-		if ((underscoreParsed.length < 9) || (underscoreParsed[9].equals("-"))){
-			parsed.put("message", "");
-		}
-		else{
-			parsed.put("message", underscoreParsed[9]);
+		
+		int counter = 1;
+		for (int i = 4; i < underscoreParsed.length; i = i + 2){
+			String key = "IPP_" + counter; //start at IPP_1
+			parsed.put(key, underscoreParsed[i] + "_" + underscoreParsed[i+1]);
+			counter ++;
 		}
 
 		System.out.println(parsed);
@@ -418,12 +522,12 @@ public class LargeScaleInfoA3 extends HttpServlet {
 					}
 
 				}
-				try {
+				/*try {
 					sleep(5000);
 				} catch (InterruptedException e) {
 					// TODO Auto-generated catch block
 					e.printStackTrace();
-				}
+				}*/
 			}
 		}
 	}
