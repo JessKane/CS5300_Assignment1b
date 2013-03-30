@@ -178,8 +178,6 @@ public class LargeScaleInfoA3 extends HttpServlet {
 			sessionValues.put("IPPPrimary", getIPPLocal(rpcp));
 			String ip= getIPPLocal(rpcp);
 
-
-
 			sessionTable.put(sessionID + "", sessionValues);
 			String cookieVal = sessionID+"_"
 					+ sessionValues.get("version")+"_"
@@ -220,12 +218,10 @@ public class LargeScaleInfoA3 extends HttpServlet {
 		try {
 			local_IP = InetAddress.getLocalHost().getHostAddress();
 		} catch (UnknownHostException e) {
-			// TODO Auto-generated catch block
 			e.printStackTrace();
 		}
 		String local_port = "" + rpcp.getUDPLocalPort();		
 		
-		//RPC stuff TODO 
 		
 		//-----TODO : check to see if IPP_primary or IPP_backup to see if they are equal to IPPLocal 
 		//---------(1) send sessionReadClient to IPP_primary and IPP_backup----------------
@@ -336,10 +332,15 @@ public class LargeScaleInfoA3 extends HttpServlet {
 			
 			Random rand = new Random();
 			String write_result = null;
-			String final_AS_ip = ""; 		//will hold the IP address of IPPbackup
-			String final_AS_port = "";		//will hold the port number of IPPbackup
+			String final_AS_ip = "-"; 		//will hold the IP address of IPPbackup
+			String final_AS_port = "-";		//will hold the port number of IPPbackup
 			//try until you get a response 
 			while (write_result == null){
+				//If the mbrSet size is empty, use default IPP backup (i.e. none)
+				if(mbrSet.size() == 0){
+					break;
+				}
+				
 				ConcurrentHashMap<String,String> random_AS = mbrSet.get(rand.nextInt(mbrSet.size())); //get random AS
 				Calendar discard_time_cal = Calendar.getInstance();
 				discard_time_cal.add(Calendar.SECOND, SESSION_TIMEOUT_SECS + 2*delta + tau);
@@ -527,7 +528,7 @@ public class LargeScaleInfoA3 extends HttpServlet {
 			counter ++;
 		}
 
-		System.out.println(parsed);
+		System.out.println("Cookie Parsed " + parsed);
 
 		return parsed;
 	}
@@ -566,9 +567,9 @@ public class LargeScaleInfoA3 extends HttpServlet {
 						System.out.println("Failure in parsing date");
 					}
 					if ((new Date()).after(expDate)){
-						System.out.println("Session " + sessionID + " has expired");
 						sessionTable.remove(sessionID);
-						System.out.println("sessiontable size: "+ sessionTable.size());
+						System.out.println("Session " + sessionID + " has expired | " 
+					+ "sessiontable size: "+ sessionTable.size());
 					}
 					else{
 						//					System.out.println("Session #"+sessionID + " not expired");

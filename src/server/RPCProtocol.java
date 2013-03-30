@@ -42,7 +42,7 @@ public class RPCProtocol {
 	//UDP RPC Listening Server
 	private RPCServer rpcs;
 
-	//Length for an RPC call to timeout
+	//Length for an RPC call to timeout. Default to 1000
 	private int timeout_length = 1000;
 		
 	/**
@@ -122,6 +122,8 @@ public class RPCProtocol {
 			e.printStackTrace();
 		} catch(NullPointerException e){
 			return null;
+		} catch(ArrayIndexOutOfBoundsException e){
+			return null;
 		}
 		return null;
 	}
@@ -184,13 +186,14 @@ public class RPCProtocol {
 		//Socket for sending and receiving datagram packets, initialized in constructor
 		DatagramSocket rpcSocket = null;
 		DatagramPacket recvPkt = null;
+		int serverPort = -1;
 		
 		try {
 			
 			rpcSocket = new DatagramSocket();
 			rpcSocket.setSoTimeout(timeout_length );
 		
-			int serverPort = rpcSocket.getLocalPort();
+			serverPort = rpcSocket.getLocalPort();
 			
 			String callID = getCallID();
 			s = callID + ":" + rpcs.getLocalPort() + delim + s;
@@ -218,18 +221,36 @@ public class RPCProtocol {
 				} //the callID in inBuf is not the expected one
 				while(!new String(recvPkt.getData(), "UTF-8").split(delim)[0].split(":")[0].equals(callID) );
 				System.out.println("\nRPC Client Recieve from " + recvPkt.getSocketAddress() + ":" + recvPkt.getPort());
-		} catch(InterruptedIOException iioe) {
-			// timeout 
-			System.out.println("INTERRUPTED RPC CLIENT CALL");
-			recvPkt = null;
+		} catch (SocketTimeoutException e){
+			//timeout
+			System.out.println("\nTIMEOUT ENCOUNTERED: Client " + serverPort);
+			removeMbr(destAddr, destPort);
+		}catch(InterruptedIOException iioe) {
+			// failed connection
+			System.out.println("\nINTERRUPTED RPC: Client " + serverPort);
+			removeMbr(destAddr, destPort);
 		} catch(IOException ioe) {
-			System.out.println("IO EXCEPTION RPC CLIENT CALL");
-		// other error 
+			// other error 
+			System.out.println("\nIO EXCEPTION RPC: Client " + serverPort);
+			removeMbr(destAddr, destPort);
 		} 
 		
 		return recvPkt;
 	}
 
+	/*
+	 * Removes member from mbrSet when this server believes the member is down 
+	 */
+	@SuppressWarnings("unchecked")
+	private void removeMbr(String address, String port){
+		for(ConcurrentHashMap<String, String> mbr: ((ArrayList<ConcurrentHashMap<String, String>>)mbrSet.clone())){
+			if(mbr.get("ip").equals(address) && mbr.get("port").equals(port)){
+				mbrSet.remove(mbr);
+			}
+		}
+		print("mbrSet : " + mbrSet.clone().toString());
+	}
+	
 	private void clientSendPkt(byte[] outBuf, String destAddr, String destPort, DatagramSocket rpcSocket) {
 		InetAddress addr;
 		try {
