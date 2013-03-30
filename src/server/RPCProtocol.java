@@ -27,7 +27,7 @@ public class RPCProtocol {
 	 * Rules include:
 	 * 		(1) An IPP is inserted into the mbrSet whenever an RPC request or reply message is received 
 	 * 		    directly from that IPP. This can be implemented at a very low level, since the Java 
-	 * 		    DatagramPacket class has methods that return the sender’s IP and port.
+	 * 		    DatagramPacket class has methods that return the senders IP and port.
 	 * 		(2) An IPP is removed from the MbrSet whenever an RPC sent to that IPP times out.
 	 * 		(3) An IPP that is IPPprimary or IPPbackup in a received session-cookie is inserted into the MbrSet.
 	*/
@@ -36,13 +36,16 @@ public class RPCProtocol {
 	//Deliminator, using pound since underscore is used in location tracking for sessions
 	String delim = "#";
 	
+	//Sanitizer for when the deliminator is included in a message
+	String sanitizeDelim = "***DELIM***";
+	
 	//Call id number tracker
 	private static int callID_num = 0;
 	
 	//UDP RPC Listening Server
 	private RPCServer rpcs;
 
-	//Length for an RPC call to timeout
+	//Length for an RPC call to timeout. Default to 1000
 	private int timeout_length = 1000;
 		
 	/**
@@ -92,7 +95,7 @@ public class RPCProtocol {
 	public String sessionReadClient(String SID, String version, String destAddr, String destPort){
 		String s = Operation.SessionRead.id + delim + SID + delim + version;
 		try {
-			String[] strArr = new String(RPCClient(s, destAddr, destPort).getData(), "UTF-8").split(delim);
+			String[] strArr = new String(RPCClient(s, destAddr, destPort, "Read").getData(), "UTF-8").split(delim);
 			return strArr[1] + delim + strArr[2];
 		} catch (UnsupportedEncodingException e) {
 			e.printStackTrace();
@@ -115,16 +118,14 @@ public class RPCProtocol {
 	 */
 	
 	public String sessionWriteClient(String SID, String version, String data, String discard_time, String destAddr, String destPort){
-		String s = Operation.SessionWrite.id + delim + SID + delim + version + delim + data + delim + discard_time;
+		String s = Operation.SessionWrite.id + delim + SID + delim + version + delim + sanitizeDelimText(data) + delim + discard_time;
 		try {
-			return new String(RPCClient(s, destAddr, destPort).getData(), "UTF-8").split(delim)[1];
+			return new String(RPCClient(s, destAddr, destPort, "Write").getData(), "UTF-8").split(delim)[1];
 		} catch (UnsupportedEncodingException e) {
 			e.printStackTrace();
-		} catch (SocketTimeoutException e){
-			return null;
-		} catch (InterruptedIOException e) {
-			return null;
 		} catch(NullPointerException e){
+			return null;
+		} catch(ArrayIndexOutOfBoundsException e){
 			return null;
 		}
 		return null;
@@ -142,16 +143,11 @@ public class RPCProtocol {
 	public String sessionDeleteClient(String SID, String version, String destAddr, String destPort){
 		String s = Operation.SessionDelete.id + delim + SID + delim + version + delim;
 		try {
-			String responce = new String(RPCClient(s, destAddr, destPort).getData(), "UTF-8");
-			print("RESPONCE " + responce);
+			String responce = new String(RPCClient(s, destAddr, destPort, "Del").getData(), "UTF-8");
 			return responce.split(delim)[1];
 		} catch (UnsupportedEncodingException e) {
 			e.printStackTrace();
-		} catch (SocketTimeoutException e){
-			return null;
-		} catch (InterruptedIOException e) {
-			return null;
-		}
+		} 
 		return null;
 	}
 	
@@ -167,14 +163,10 @@ public class RPCProtocol {
 		String s = Operation.GetMembers.id + delim + sz + delim;
 		String[] responceArr = null;
 		try {
-			responceArr = (new String(RPCClient(s, destAddr, destPort).getData(), "UTF-8")).split(delim);
+			responceArr = (new String(RPCClient(s, destAddr, destPort, "GetMbrs").getData(), "UTF-8")).split(delim);
 		} catch (UnsupportedEncodingException e) {
 			e.printStackTrace();
-		} catch (SocketTimeoutException e){
-			return null;
-		} catch (InterruptedIOException e) {
-			return null;
-		}
+		} 
 		
 		ArrayList<Hashtable<String,String>> mbrs = new ArrayList<Hashtable<String,String>>();
 		
@@ -193,21 +185,22 @@ public class RPCProtocol {
 	}
 	
 	@SuppressWarnings("unchecked")
-	private DatagramPacket RPCClient(String s, String destAddr, String destPort) throws SocketTimeoutException, InterruptedIOException {
+	private DatagramPacket RPCClient(String s, String destAddr, String destPort, String cmd) {
 		//Socket for sending and receiving datagram packets, initialized in constructor
 		DatagramSocket rpcSocket = null;
 		DatagramPacket recvPkt = null;
+		int serverPort = -1;
+		
 		try {
-			print("RPC Operation from client with string: " + s);
 			
 			rpcSocket = new DatagramSocket();
 			rpcSocket.setSoTimeout(timeout_length );
 		
-			int serverPort = rpcSocket.getLocalPort();
-			System.out.println(serverPort);
+			serverPort = rpcSocket.getLocalPort();
 			
 			String callID = getCallID();
-			s = callID + ":" + rpcSocket.getLocalPort() + delim + s;
+			s = callID + ":" + rpcs.getLocalPort() + delim + s;
+			print("\nRPC Client Send " + cmd + " at " + serverPort + " to " + destAddr + ":" + destPort + " | " + s);
 			
 			ByteArrayOutputStream outputStream = new ByteArrayOutputStream( );
 			
@@ -230,18 +223,37 @@ public class RPCProtocol {
 				rpcSocket.receive(recvPkt);
 				} //the callID in inBuf is not the expected one
 				while(!new String(recvPkt.getData(), "UTF-8").split(delim)[0].split(":")[0].equals(callID) );
-		}  catch(InterruptedIOException iioe) {
-			// timeout 
-			System.out.println("INTERRUPTED RPC CLIENT CALL");
-			recvPkt = null;
+				System.out.println("\nRPC Client Recieve from " + recvPkt.getSocketAddress() + ":" + recvPkt.getPort());
+		} catch (SocketTimeoutException e){
+			//timeout
+			System.out.println("\nTIMEOUT ENCOUNTERED: Client " + serverPort);
+			removeMbr(destAddr, destPort);
+		}catch(InterruptedIOException iioe) {
+			// failed connection
+			System.out.println("\nINTERRUPTED RPC: Client " + serverPort);
+			removeMbr(destAddr, destPort);
 		} catch(IOException ioe) {
-			System.out.println("IO EXCEPTION RPC CLIENT CALL");
-		// other error 
-		}
-		System.out.println("END OF RPC CALL");
+			// other error 
+			System.out.println("\nIO EXCEPTION RPC: Client " + serverPort);
+			removeMbr(destAddr, destPort);
+		} 
+		
 		return recvPkt;
 	}
 
+	/*
+	 * Removes member from mbrSet when this server believes the member is down 
+	 */
+	@SuppressWarnings("unchecked")
+	private void removeMbr(String address, String port){
+		for(ConcurrentHashMap<String, String> mbr: ((ArrayList<ConcurrentHashMap<String, String>>)mbrSet.clone())){
+			if(mbr.get("ip").equals(address) && mbr.get("port").equals(port)){
+				mbrSet.remove(mbr);
+			}
+		}
+		print("mbrSet : " + mbrSet.clone().toString());
+	}
+	
 	private void clientSendPkt(byte[] outBuf, String destAddr, String destPort, DatagramSocket rpcSocket) {
 		InetAddress addr;
 		try {
@@ -293,7 +305,7 @@ public class RPCProtocol {
 		
 		ConcurrentHashMap<String, String> sessionValues = new ConcurrentHashMap<String, String>();
 		sessionValues.put("version", dataStringArr[3]);
-		sessionValues.put("message", dataStringArr[4]);
+		sessionValues.put("message", desanitizeDelimText(dataStringArr[4]));
 		sessionValues.put("expiration-timestamp", dataStringArr[5]);
 		
 		String ip = null;
@@ -377,6 +389,7 @@ public class RPCProtocol {
 	private class RPCServer extends Thread{
 		private DatagramSocket rpcSocket;
 		private int serverPort;
+		public boolean simulateCrash = false;
 		
 		RPCServer(){
 			
@@ -403,7 +416,7 @@ public class RPCProtocol {
 		}
 
 		public void run(){
-			while(true) {
+			while(!simulateCrash) {
 			    byte[] inBuf = new byte[Byte.MAX_VALUE];
 			    DatagramPacket recvPkt = new DatagramPacket(inBuf, inBuf.length);
 			    try {
@@ -413,18 +426,19 @@ public class RPCProtocol {
 				    
 				    // here inBuf contains the callID and operationCode
 				    String inData = new String(recvPkt.getData(), "UTF-8");
-				    print("RPC Server Command Recieved " + inData);
+				    print("\nRPC Server Recieve at " + this.getLocalPort() + " | " + inData);
 				    int operationCode = Integer.parseInt(inData.split(delim)[1]); // get requested operationCode
 				    String callID = inData.split(delim)[0] + delim;
-				    String returnPort = callID.split(":")[1].replace(delim, "");
-				    checkForMbrship(returnAddr, returnPort);
+				    String returnClientPort = recvPkt.getPort() + "";
+				    String returnServerPort = callID.split(":")[1].replace(delim, "");
+				    checkForMbrship(returnAddr, returnServerPort);
 				    byte[] outBuf = null;
 				    	
 			    	if(operationCode == Operation.SessionRead.getId()){
 			    		outBuf = (callID + SessionRead(recvPkt.getData(), recvPkt.getLength())).getBytes();
 					}
 			    	else if(operationCode == Operation.SessionWrite.getId()){
-			    		outBuf = (callID + SessionWrite(recvPkt.getData(), recvPkt.getLength(), rpcSocket, returnAddr.getHostAddress(), returnPort + "")).getBytes();
+			    		outBuf = (callID + SessionWrite(recvPkt.getData(), recvPkt.getLength(), rpcSocket, returnAddr.getHostAddress(), returnServerPort + "")).getBytes();
 			    	}
 			    	else if(operationCode == Operation.SessionDelete.getId()){
 			    		outBuf = (callID + SessionDelete(recvPkt.getData(), recvPkt.getLength())).getBytes();
@@ -438,7 +452,7 @@ public class RPCProtocol {
 			    	}
 			    	
 				    DatagramPacket sendPkt = new DatagramPacket(outBuf, outBuf.length,
-				    returnAddr, Integer.parseInt(returnPort));
+				    returnAddr, Integer.parseInt(returnClientPort));
 				    
 				    //TESTING FOR TIMEOUT
 				    /*try {
@@ -447,6 +461,8 @@ public class RPCProtocol {
 						e.printStackTrace();
 					}*/
 					rpcSocket.send(sendPkt);
+					print("\nRPC Server Sent at " + this.getLocalPort() + " to " + returnAddr 
+							+ ":" + Integer.parseInt(returnClientPort) + " | " + new String(outBuf, "UTF-8"));
 					
 				} catch (IOException e) {
 					e.printStackTrace();
@@ -471,8 +487,24 @@ public class RPCProtocol {
 			ConcurrentHashMap<String, String> toInsert = new ConcurrentHashMap<String, String>();
 			toInsert.put("ip", returnAddr.getHostAddress());
 			toInsert.put("port", returnPort);
+			print("Added new member to memberset :" + returnAddr.getHostAddress() + ":" + returnPort);
 			mbrSet.add(toInsert);
 		}
+	}
+	
+	/*
+	 * To Simulate a server crash, we close the listing RPC server
+	 */
+	public void destroyListener() {
+		rpcs.simulateCrash = true;
+	}
+	
+	public String sanitizeDelimText(String s){
+		return s.replace(delim, sanitizeDelim);
+	}
+	
+	public String desanitizeDelimText(String s){
+		return s.replace(sanitizeDelim, delim);
 	}
 	
 	//Operations
@@ -493,4 +525,6 @@ public class RPCProtocol {
 
 	    public String toString() { return name;}
 	}
+
+	
 }

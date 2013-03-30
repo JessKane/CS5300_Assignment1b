@@ -87,6 +87,9 @@ public class LargeScaleInfoA3 extends HttpServlet {
 	//RPC Protocol
 	RPCProtocol rpcp;
 	
+	//Flag to simulate a server crash
+	boolean simulateCrash = false;
+	
 	/*
 	 * Constructor for initializing RPC handling
 	 */
@@ -167,6 +170,8 @@ public class LargeScaleInfoA3 extends HttpServlet {
 			sessionValues.put("message", "");
 			sessionValues.put("expiration-timestamp", df.format(cal.getTime()));
 			String ip= getIPPLocal(rpcp);
+            sessionValues.put("IPPPrimary", ip);	
+
 
 
 
@@ -180,7 +185,7 @@ public class LargeScaleInfoA3 extends HttpServlet {
 
 		//Add cookie to response regardless, as it always contains new expiration and version information
 		response.addCookie(a2Cookie);
-		System.out.println("cookie val: " + a2Cookie.getValue());
+        System.out.println("Cookie sent Preliminary | " + a2Cookie.getValue());
 		return a2Cookie;
 	}
 
@@ -276,9 +281,10 @@ public class LargeScaleInfoA3 extends HttpServlet {
 			else{
 				//TODO
 				//parse the data returned by IPP primary or backup, and use this data from now onwards
-				String[] readResponse_split = readResponse.split("#");
+                //Be sure to use rpcp.desanitizeDelimText(message) to desanitize the message for deliminators		279	                                
+                String[] readResponse_split = readResponse.split("#");
 				oldVersion = readResponse_split[0];
-				message = readResponse_split[1];	
+				message = rpcp.desanitizeDelimText(readResponse_split[1]);	
 			}
 		}
 		
@@ -295,7 +301,25 @@ public class LargeScaleInfoA3 extends HttpServlet {
 			
 			out.write("<html>\n<body>\n<br>&nbsp;\n<br><big><big><b>Bye!<br>&nbsp;<br>\n</b></big></big>\n</body>\n</html>");
 			out.close();
-		} else if (cmd.equals("Replace") && message.length() > 512) {
+
+		} else if(cmd.equals("Crash")){
+			System.out.println("Crash Command");
+			
+			try {
+				//Ensures HTTP Servlet only sends HTTP errors
+				simulateCrash = true;
+				//Ensures UDP server listening port is closed
+				rpcp.destroyListener();
+				
+				out.write("<html>\n<body>\n<br>&nbsp;\n<br><big><big><b>Server " 
+				+ InetAddress.getLocalHost().getHostAddress() + ":" + rpcp.getUDPLocalPort() 
+				+ " has simulated a crash!<br>&nbsp;<br>\n</b></big></big>\n" 
+				+ "<form method=GET action=''><input type=submit value='Go home' ></form></body>\n</html>");
+			} catch (UnknownHostException e) {
+				e.printStackTrace();
+			}
+			out.close();
+        } else if (cmd.equals("Replace") && message.length() > 512) {
 			System.out.println("Message is greater than 512 bytes. Request ignored and no cookie made");
 			return;
 		} else {
@@ -341,13 +365,17 @@ public class LargeScaleInfoA3 extends HttpServlet {
 			String final_discardTime = "";
 			//try until you get a response 
 			while (write_result == null){
+
+				//If the mbrSet size is empty, use default IPP backup (i.e. none)
+				if(mbrSet.size() == 0){
+					break;
+				}
+
 				ConcurrentHashMap<String,String> random_AS = mbrSet.get(rand.nextInt(mbrSet.size())); //get random AS
 				Calendar discard_time_cal = Calendar.getInstance();
 				discard_time_cal.add(Calendar.SECOND, SESSION_TIMEOUT_SECS + 2*delta + tau);
 				String discard_time =  df.format(discard_time_cal.getTime());
 				
-				//TODO: check: data = message??
-				System.out.println("MESSAGE " + message);
 				write_result = rpcp.sessionWriteClient(sessionID, newVersion, message, discard_time, random_AS.get("ip"), random_AS.get("port"));
 				
 				if (write_result != null){
@@ -368,10 +396,15 @@ public class LargeScaleInfoA3 extends HttpServlet {
 			String IPP_newBackup = final_AS_ip + "_" + final_AS_port;
 			cookieVal += "_" + IPP_local + "_" + IPP_newBackup;				
 			
-			System.out.println("new cookie for request: " + cookieVal);
+			//Store primary and backup for later display
+			ConcurrentHashMap<String, String> sessionInfo = sessionTable.get(sessionID);
+			sessionInfo.put("IPPPrimary", IPP_local);
+			sessionInfo.put("IPPBackup", IPP_newBackup);
+
+
+			System.out.println("Cookie sent Secondary | " + cookieVal);
 			Cookie newCookie = new Cookie(a2CookieName, cookieVal);
 			response.addCookie(newCookie);
-			System.out.println(cookieVal);
 		}
 	}
 
@@ -388,6 +421,9 @@ public class LargeScaleInfoA3 extends HttpServlet {
 		out += "</form>\n";
 		out += "<form method=GET action=''>\n";
 		out += "<input type=submit name=cmd value=LogOut>\n";
+		out += "</form>\n";
+		out += "<form method=GET action=''>\n";
+		out += "<input type=submit name=cmd value=Crash>\n";
 		out += "</form>\n";
 
 		return out;
@@ -529,8 +565,7 @@ public class LargeScaleInfoA3 extends HttpServlet {
 		ConcurrentHashMap<String,String> parsed= new ConcurrentHashMap<String,String>();
 		String[] underscoreParsed = cookieVal.split("_");
 		if (underscoreParsed.length != 5){
-			System.out.println("array is " + underscoreParsed.length + " components long");
-			System.out.println(cookieVal);
+System.out.println("array is " + underscoreParsed.length + " components long | " + cookieVal);
 		}
 		parsed.put("sessionID", underscoreParsed[0]+"_"+underscoreParsed[1]+"_"+underscoreParsed[2]);
 		parsed.put("version", underscoreParsed[3]);
@@ -542,7 +577,8 @@ public class LargeScaleInfoA3 extends HttpServlet {
 			counter ++;
 		}
 
-		System.out.println(parsed);
+        System.out.println("Cookie Parsed " + parsed);	
+
 
 		return parsed;
 	}
@@ -552,7 +588,6 @@ public class LargeScaleInfoA3 extends HttpServlet {
 		try {
 			ip = InetAddress.getLocalHost().getHostAddress() + "_" + rpcp.getUDPLocalPort();
 		} catch (UnknownHostException e) {
-			// TODO Auto-generated catch block
 			e.printStackTrace();
 		}
 		return ip;
@@ -581,9 +616,10 @@ public class LargeScaleInfoA3 extends HttpServlet {
 						System.out.println("Failure in parsing date");
 					}
 					if ((new Date()).after(expDate)){
-						System.out.println("Session " + sessionID + " has expired");
 						sessionTable.remove(sessionID);
 						System.out.println("sessiontable size: "+ sessionTable.size());
+						System.out.println("Session " + sessionID + " has expired | " 
+								+ "sessiontable size: "+ sessionTable.size());
 					}
 					else{
 						//					System.out.println("Session #"+sessionID + " not expired");
@@ -593,7 +629,6 @@ public class LargeScaleInfoA3 extends HttpServlet {
 				/*try {
 					sleep(5000);
 				} catch (InterruptedException e) {
-					// TODO Auto-generated catch block
 					e.printStackTrace();
 				}*/
 			}
