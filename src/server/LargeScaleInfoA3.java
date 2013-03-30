@@ -206,7 +206,7 @@ public class LargeScaleInfoA3 extends HttpServlet {
 	private void handleCommand(HttpServletResponse response, HttpServletRequest request, PrintWriter out, Cookie c){
 		ConcurrentHashMap<String,String> parsed= parseCookieValue(c.getValue());
 		String sessionID = parsed.get("sessionID");
-		String oldVersion = sessionTable.get(sessionID).get("version"); 		//TODO: get new version number from sessionRead data?
+		String oldVersion = parsed.get("version");
 		String cmd = request.getParameter("cmd");
 		String message = request.getParameter("NewText");
 		String choice = ""; //picked primary, backup, or cache?
@@ -232,10 +232,6 @@ public class LargeScaleInfoA3 extends HttpServlet {
 		if (parsed.containsKey("IPP_2")){
 			IPP_2 = parsed.get("sessionID");
 		}
-		
-		System.out.println("IPP Local: " + IPP_local);
-		System.out.println("IPP_1: " + IPP_1);
-		System.out.println("IPP_2: " + IPP_2);
 		
 		//---- check to see if IPP_primary or IPP_backup to see if they are equal to IPPLocal ---
 		if (IPP_1.equals(IPP_local) || IPP_2.equals(IPP_local)){
@@ -282,9 +278,21 @@ public class LargeScaleInfoA3 extends HttpServlet {
 				//TODO
 				//parse the data returned by IPP primary or backup, and use this data from now onwards
                 //Be sure to use rpcp.desanitizeDelimText(message) to desanitize the message for deliminators		279	                                
-                String[] readResponse_split = readResponse.split("#");
-				oldVersion = readResponse_split[0];
-				message = rpcp.desanitizeDelimText(readResponse_split[1]);	
+				Date oldVersion_date = null;
+				Date readVersion_date = null;
+				String[] readResponse_split = readResponse.split("#");
+				String readVersion = readResponse_split[0];
+
+				try {
+					oldVersion_date = df.parse(oldVersion);
+					readVersion_date = df.parse(readVersion);
+				} catch (ParseException e) {
+					System.out.println("Failure in parsing date");
+				}
+				if (readVersion_date.after(oldVersion_date)){
+					oldVersion = readVersion;
+					message = rpcp.desanitizeDelimText(readResponse_split[1]);	
+				}
 			}
 		}
 		
