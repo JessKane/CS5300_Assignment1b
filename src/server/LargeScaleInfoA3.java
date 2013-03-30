@@ -1,9 +1,7 @@
 /**
- * TODO: check if IPPprimary and IPPbackup = IPPlocal in handleCommand 
  * TODO: add members if it appears in cookie
  * TODO: crash button
  * TODO: random AS generator --> fix so it doesn't repeat 
- * TODO: HTML display (server ID, where you read request, IPPp, IPPb, session expr, discard time, and mbrset (Section 4)
  */
 package server;
 
@@ -118,6 +116,7 @@ public class LargeScaleInfoA3 extends HttpServlet {
 		out.println("<u>ServerID:</u> " + getIPPLocal(rpcp));
 		out.println(getSessionExp(sessionID));
 		out.println("<p> <u>Memberset:</u> " + rpcp.mbrSet);
+		out.println(getChoice(sessionID));
 		out.println("<p><u>IPP Primary:</u> " + parsed.get("IPP_1"));
 		if (parsed.containsKey("IPP_2")){
 			out.println("<p><u>IPP Backup:</u> " + parsed.get("IPP_2"));
@@ -126,7 +125,7 @@ public class LargeScaleInfoA3 extends HttpServlet {
 			out.println("<p><u>IPP Backup:</u> none");
 		}
 
-		System.out.println(getDiscardTime(sessionID));
+		out.println(getDiscardTime(sessionID));
 		out.println("</body>\n</html>");
 	}
 
@@ -205,53 +204,82 @@ public class LargeScaleInfoA3 extends HttpServlet {
 		String oldVersion = sessionTable.get(sessionID).get("version"); 		//TODO: get new version number from sessionRead data?
 		String cmd = request.getParameter("cmd");
 		String message = request.getParameter("NewText");
-		
-		//local IP and port
-		String local_IP = null;
-		try {
-			local_IP = InetAddress.getLocalHost().getHostAddress();
-		} catch (UnknownHostException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		}
-		String local_port = "" + rpcp.getUDPLocalPort();		
+		String choice = ""; //picked primary, backup, or cache?
 		
 		//RPC stuff TODO 
 		
-		//-----TODO : check to see if IPP_primary or IPP_backup to see if they are equal to IPPLocal 
 		//---------(1) send sessionReadClient to IPP_primary and IPP_backup----------------
+		//IPPLocal
+		
+		String IPP_local = getIPPLocal(rpcp);
+		String[] IPPLocal_split = IPP_local.split("_");
+		String local_IP = IPPLocal_split[0];
+		String local_port = IPPLocal_split[1];
+		
 		//IPP Primary
-		String IPP_1 = parsed.get("sessionID");
+		String IPP_1 = parsed.get("IPP_1");
 		String[] IPP1_split = IPP_1.split("_");
 		String IP_addr_1 = IPP1_split[0];
 		String port_1 = IPP1_split[1];
 		
-		String readResponse = rpcp.sessionReadClient(sessionID, oldVersion, IP_addr_1, port_1);
-		System.out.println("RPC Read response: " +  readResponse);
+		//IPP Backup (if present)
+		String IPP_2 = "";
+		if (parsed.containsKey("IPP_2")){
+			IPP_2 = parsed.get("sessionID");
+		}
 		
-		//IPP backup
-		if (readResponse.equals("notFound")){
-			if (parsed.containsKey("IPP_2")){
-				String IPP_2 = parsed.get("sessionID");
-				String[] IPP2_split = IPP_2.split("_");
-				String IP_addr_2 = IPP2_split[0];
-				String port_2 = IPP2_split[1];
-				
-				readResponse =  rpcp.sessionReadClient(sessionID, oldVersion, IP_addr_2, port_2);
+		System.out.println("IPP Local: " + IPP_local);
+		System.out.println("IPP_1: " + IPP_1);
+		System.out.println("IPP_2: " + IPP_2);
+		
+		//---- check to see if IPP_primary or IPP_backup to see if they are equal to IPPLocal ---
+		if (IPP_1.equals(IPP_local) || IPP_2.equals(IPP_local)){
+
+			//TODO: use local SSTbl? or use what was submitted in in form?
+			choice = "cache";
+		}
+		else{		
+			String readResponse = rpcp.sessionReadClient(sessionID, oldVersion, IP_addr_1, port_1);
+			System.out.println("RPC Read response: " +  readResponse);
+			
+			System.out.println("Read Response from ipp1: " + readResponse);
+			//IPP backup
+			if (readResponse.equals("notFound")){		//IPP_1 failed	
+				if (parsed.containsKey("IPP_2")){
+					String[] IPP2_split = IPP_2.split("_");
+					String IP_addr_2 = IPP2_split[0];
+					String port_2 = IPP2_split[1];
+					readResponse =  rpcp.sessionReadClient(sessionID, oldVersion, IP_addr_2, port_2);
+					System.out.println("Read Response from ipp2: " + readResponse);
+					
+					if (!(readResponse.equals("notFound"))){
+						choice="backup";
+					}
+				}
 			}
-		}
-		
-		//-----------(2)if there is a response from either, use found_Version and new data from now onwards---------------
-		//newData = message. If found_Version more recent than your version, then use newData as message
-		
-		if (readResponse.equals("notFound")){
-			/*TODO: you should return an HTML page with a message saying the session timed out 
-			or failed (you will be able to tell the difference between these in some but possibly not all cases), 
-			and make sure the cookie for the timed-out-or-lost session is deleted from the browser.*/
-		}
-		else{
-			//TODO
-			//parse the data returned by IPP primary or backup, and use this data from now onwards
+			
+			else {	//IPP ok
+				choice = "primary";
+			}
+			
+			
+			//-----------(2)if there is a response from either, use found_Version and new data from now onwards---------------
+			//newData = message. If found_Version more recent than your version, then use newData as message
+			System.out.println("readResponse: " + readResponse);
+			if (readResponse.equals("notFound")){
+				/*TODO: you should return an HTML page with a message saying the session timed out 
+				or failed (you will be able to tell the difference between these in some but possibly not all cases), 
+				and make sure the cookie for the timed-out-or-lost session is deleted from the browser.*/
+				//out.write("<html>\n<body>\n<br>&nbsp;\n Session timed out or failed \n</body>\n</html>");
+				out.write("<html>\n<body>\n<br>&nbsp;\n<br><big><big><b>Session has timed out or failed<br>&nbsp;<br>\n</b></big></big>\n</body>\n</html>");
+			}
+			else{
+				//TODO
+				//parse the data returned by IPP primary or backup, and use this data from now onwards
+				String[] readResponse_split = readResponse.split("#");
+				oldVersion = readResponse_split[0];
+				message = readResponse_split[1];	
+			}
 		}
 		
 		//Don't do anything if no command was provided
@@ -310,15 +338,13 @@ public class LargeScaleInfoA3 extends HttpServlet {
 			String write_result = null;
 			String final_AS_ip = ""; 		//will hold the IP address of IPPbackup
 			String final_AS_port = "";		//will hold the port number of IPPbackup
+			String final_discardTime = "";
 			//try until you get a response 
 			while (write_result == null){
 				ConcurrentHashMap<String,String> random_AS = mbrSet.get(rand.nextInt(mbrSet.size())); //get random AS
 				Calendar discard_time_cal = Calendar.getInstance();
 				discard_time_cal.add(Calendar.SECOND, SESSION_TIMEOUT_SECS + 2*delta + tau);
 				String discard_time =  df.format(discard_time_cal.getTime());
-				sessionTable.get(sessionID).put("discard_time", discard_time); //TODO: check: does discardTime get put into SSTbl?
-				System.out.println("Discard time: " + sessionTable.get(sessionID).get("discard_time"));
-
 				
 				//TODO: check: data = message??
 				System.out.println("MESSAGE " + message);
@@ -327,13 +353,18 @@ public class LargeScaleInfoA3 extends HttpServlet {
 				if (write_result != null){
 					final_AS_ip = random_AS.get("ip");
 					final_AS_port = random_AS.get("port");
+					final_discardTime = discard_time;
 				}
 			}
 		
+			sessionTable.get(sessionID).put("discard_time", final_discardTime); //TODO: check: does discardTime get put into SSTbl? 
+
+			//put choice (where you're getting data from) into sessionTable
+			sessionTable.get(sessionID).put("choice", choice); 
+			
 			//-------(4) make a new cookie with IPP primary and backup----------
 			//cookieVal so far only has session_ID and version number
 			
-			String IPP_local = local_IP  + "_" + local_port;
 			String IPP_newBackup = final_AS_ip + "_" + final_AS_port;
 			cookieVal += "_" + IPP_local + "_" + IPP_newBackup;				
 			
@@ -438,14 +469,30 @@ public class LargeScaleInfoA3 extends HttpServlet {
 	}
 
 	/*
-	 * print sessionID on HTML page
-	 * for debugging purposes
+	 * print discard time  on HTML page
 	 */
 	private String getDiscardTime(String sessionID) {
 		String out = "<p><u>Discard Time:</u> ";
 
 		if((sessionID != null) && sessionTable.containsKey(sessionID)){
 			out += sessionTable.get(sessionID).get("discard_time");
+		} else{
+			out += "Issue with cookies";
+		}
+
+		out += "</p>";
+
+		return out;
+	}	
+	
+	/*
+	 * print origin of data (primary, backup, or cache) on HTML page
+	 */
+	private String getChoice(String sessionID) {
+		String out = "<p><u>Choice:</u> ";
+
+		if((sessionID != null) && sessionTable.containsKey(sessionID)){
+			out += sessionTable.get(sessionID).get("choice");
 		} else{
 			out += "Issue with cookies";
 		}
