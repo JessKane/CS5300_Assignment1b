@@ -1,7 +1,6 @@
 /**
  * TODO: check if IPPprimary and IPPbackup = IPPlocal in handleCommand 
  * TODO: add members if it appears in cookie
- * TODO: crash button
  * TODO: random AS generator --> fix so it doesn't repeat 
  * TODO: HTML display (server ID, where you read request, IPPp, IPPb, session expr, discard time, and mbrset (Section 4)
  */
@@ -161,7 +160,7 @@ public class LargeScaleInfoA3 extends HttpServlet {
 			}
 		}
 
-		//If no cookie was found, generate a new one
+		//If no cookie was found, generate a new one 
 		//Also fill sessionTable with new sessionID entry 
 		if (a2Cookie == null) { 		 
 			System.out.println(" -- new cookie --");
@@ -258,6 +257,7 @@ public class LargeScaleInfoA3 extends HttpServlet {
 		else{
 			//TODO
 			//parse the data returned by IPP primary or backup, and use this data from now onwards
+			//Be sure to use rpcp.desanitizeDelimText(message) to desanitize the message for deliminators
 		}
 		
 		//Don't do anything if no command was provided
@@ -268,8 +268,9 @@ public class LargeScaleInfoA3 extends HttpServlet {
 		else if(cmd.equals("LogOut")){
 			System.out.println("LogOut command");
 			
+			//TODO: send rpcp.sessionDeleteClient to previous IPPprimary and backup?? Is that sufficient?
 			rpcp.sessionDeleteClient(sessionID, oldVersion, local_IP, local_port);
-			sessionTable.remove(sessionID); //TODO: change to rpcp.sessionDeleteClient 
+			sessionTable.remove(sessionID); 
 			
 			out.write("<html>\n<body>\n<br>&nbsp;\n<br><big><big><b>Bye!<br>&nbsp;<br>\n</b></big></big>\n</body>\n</html>");
 			out.close();
@@ -327,7 +328,6 @@ public class LargeScaleInfoA3 extends HttpServlet {
 			
 			/*TODO: use mbrset, or this: 
 			 * ArrayList<Hashtable<String,String>> random_mbrset = rpcp.getMembersClient(20, IP_addr_1, port_1);
-			 *TODO: Handle delim in message
 			 */
 			
 			Random rand = new Random();
@@ -538,7 +538,6 @@ public class LargeScaleInfoA3 extends HttpServlet {
 		try {
 			ip = InetAddress.getLocalHost().getHostAddress() + "_" + rpcp.getUDPLocalPort();
 		} catch (UnknownHostException e) {
-			// TODO Auto-generated catch block
 			e.printStackTrace();
 		}
 		return ip;
@@ -579,7 +578,6 @@ public class LargeScaleInfoA3 extends HttpServlet {
 				/*try {
 					sleep(5000);
 				} catch (InterruptedException e) {
-					// TODO Auto-generated catch block
 					e.printStackTrace();
 				}*/
 			}

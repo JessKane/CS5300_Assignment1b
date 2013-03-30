@@ -36,6 +36,9 @@ public class RPCProtocol {
 	//Deliminator, using pound since underscore is used in location tracking for sessions
 	String delim = "#";
 	
+	//Sanitizer for when the deliminator is included in a message
+	String sanitizeDelim = "***DELIM***";
+	
 	//Call id number tracker
 	private static int callID_num = 0;
 	
@@ -50,7 +53,6 @@ public class RPCProtocol {
 	 * @param sessionTable - <session_ID, sessionValues(hashmap with keys: version, message, expiration_time, location)>
 	 * @param mbrSet - each member (cell in ArrayList) has a hashmap describing its ip addr and port 
 	 */
-	@SuppressWarnings("unchecked")
 	public RPCProtocol(ConcurrentHashMap<String, ConcurrentHashMap<String, String>> sessionTable, ArrayList<ConcurrentHashMap<String, String>> mbrSet){
 		
 		this.sessionTable = sessionTable;
@@ -58,6 +60,7 @@ public class RPCProtocol {
 		
 		rpcs = new RPCServer();
 		//Temporary listening servers
+		@SuppressWarnings("unused")
 		RPCServer rpcs1 = new RPCServer();
 		RPCServer rpcs2 = new RPCServer();
 		RPCServer rpcs3 = new RPCServer();
@@ -115,7 +118,7 @@ public class RPCProtocol {
 	 */
 	
 	public String sessionWriteClient(String SID, String version, String data, String discard_time, String destAddr, String destPort){
-		String s = Operation.SessionWrite.id + delim + SID + delim + version + delim + data + delim + discard_time;
+		String s = Operation.SessionWrite.id + delim + SID + delim + version + delim + sanitizeDelimText(data) + delim + discard_time;
 		try {
 			return new String(RPCClient(s, destAddr, destPort, "Write").getData(), "UTF-8").split(delim)[1];
 		} catch (UnsupportedEncodingException e) {
@@ -208,7 +211,7 @@ public class RPCProtocol {
 			if(destAddr != null && destPort != null){
 				clientSendPkt(outBuf, destAddr, destPort, rpcSocket);
 			} else{
-				for( @SuppressWarnings("rawtypes") ConcurrentHashMap<String, String> mbr : 
+				for( ConcurrentHashMap<String, String> mbr : 
 					(ArrayList<ConcurrentHashMap<String, String>>)mbrSet.clone()  ) {
 					clientSendPkt(outBuf, (String) mbr.get("ip"), (String) mbr.get("port"), rpcSocket);
 				}
@@ -302,7 +305,7 @@ public class RPCProtocol {
 		
 		ConcurrentHashMap<String, String> sessionValues = new ConcurrentHashMap<String, String>();
 		sessionValues.put("version", dataStringArr[3]);
-		sessionValues.put("message", dataStringArr[4]);
+		sessionValues.put("message", desanitizeDelimText(dataStringArr[4]));
 		sessionValues.put("expiration-timestamp", dataStringArr[5]);
 		
 		String ip = null;
@@ -494,6 +497,14 @@ public class RPCProtocol {
 	 */
 	public void destroyListener() {
 		rpcs.simulateCrash = true;
+	}
+	
+	public String sanitizeDelimText(String s){
+		return s.replace(delim, sanitizeDelim);
+	}
+	
+	public String desanitizeDelimText(String s){
+		return s.replace(sanitizeDelim, delim);
 	}
 	
 	//Operations
