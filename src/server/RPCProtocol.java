@@ -53,7 +53,6 @@ public class RPCProtocol {
 	 * @param sessionTable - <session_ID, sessionValues(hashmap with keys: version, message, expiration_time, location)>
 	 * @param mbrSet - each member (cell in ArrayList) has a hashmap describing its ip addr and port 
 	 */
-	@SuppressWarnings("unchecked")
 	public RPCProtocol(ConcurrentHashMap<String, ConcurrentHashMap<String, String>> sessionTable, ArrayList<ConcurrentHashMap<String, String>> mbrSet){
 		
 		this.sessionTable = sessionTable;
@@ -61,6 +60,7 @@ public class RPCProtocol {
 		
 		rpcs = new RPCServer();
 		//Temporary listening servers
+		@SuppressWarnings("unused")
 		RPCServer rpcs1 = new RPCServer();
 		RPCServer rpcs2 = new RPCServer();
 		RPCServer rpcs3 = new RPCServer();
@@ -211,7 +211,7 @@ public class RPCProtocol {
 			if(destAddr != null && destPort != null){
 				clientSendPkt(outBuf, destAddr, destPort, rpcSocket);
 			} else{
-				for( @SuppressWarnings("rawtypes") ConcurrentHashMap<String, String> mbr : 
+				for( ConcurrentHashMap<String, String> mbr : 
 					(ArrayList<ConcurrentHashMap<String, String>>)mbrSet.clone()  ) {
 					clientSendPkt(outBuf, (String) mbr.get("ip"), (String) mbr.get("port"), rpcSocket);
 				}
