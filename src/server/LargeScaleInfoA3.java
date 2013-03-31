@@ -415,7 +415,7 @@ public class LargeScaleInfoA3 extends HttpServlet {
 			// cookieVal so far only has session_ID and version number
 
 			String IPP_newBackup = final_AS_ip + "_" + final_AS_port;
-			cookieVal += "_" + IPP_local + "_" + IPP_newBackup;
+			cookieVal += "_" + IPP_local  + "_" + IPP_newBackup;
 
 			// Store primary and backup for later display
 			ConcurrentHashMap<String, String> sessionInfo = sessionTable

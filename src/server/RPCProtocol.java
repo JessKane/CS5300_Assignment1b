@@ -60,7 +60,6 @@ public class RPCProtocol {
 		
 		rpcs = new RPCServer();
 		//Temporary listening servers
-		@SuppressWarnings("unused")
 		RPCServer rpcs1 = new RPCServer();
 		RPCServer rpcs2 = new RPCServer();
 		RPCServer rpcs3 = new RPCServer();
