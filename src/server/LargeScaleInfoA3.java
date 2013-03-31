@@ -1,32 +1,21 @@
 /**
  * TODO: add members if it appears in cookie
- * TODO: crash button
  * TODO: random AS generator --> fix so it doesn't repeat 
  */
 package server;
 
-
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.io.InterruptedIOException;
 import java.io.PrintWriter;
-import java.io.UnsupportedEncodingException;
-import java.net.DatagramPacket;
-import java.net.DatagramSocket;
 import java.net.InetAddress;
-import java.net.SocketException;
 import java.net.UnknownHostException;
 import java.text.DateFormat;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Calendar;
-import java.util.Collections;
 import java.util.Date;
-import java.util.Hashtable;
-import java.util.Random;
 import java.util.concurrent.ConcurrentHashMap;
-
+import java.util.Collections;
 import javax.servlet.ServletException;
 import javax.servlet.annotation.WebServlet;
 import javax.servlet.http.Cookie;
@@ -36,65 +25,65 @@ import javax.servlet.http.HttpServletResponse;
 
 @WebServlet("/")
 public class LargeScaleInfoA3 extends HttpServlet {
-	//Servlet metadata
+	// Servlet metadata
 	private static final long serialVersionUID = 1L;
 
-	// minimum amount of time, in seconds, a session is required to remain accessible after the last client request
+	// minimum amount of time, in seconds, a session is required to remain
+	// accessible after the last client request
 	private static final int SESSION_TIMEOUT_SECS = 60;
 
 	private static int session_num = 0;
-	
-	//Thread safe form of the simple date format
+
+	// Thread safe form of the simple date format
 	public static class DateFormatThreadSafe {
 
-		  private static final ThreadLocal<DateFormat> df
-		                 = new ThreadLocal<DateFormat>(){
-		    @Override
-		    protected DateFormat initialValue() {
-		        return new SimpleDateFormat("yyyy/MM/dd HH:mm:ss");
-		    }
-		  };
+		private static final ThreadLocal<DateFormat> df = new ThreadLocal<DateFormat>() {
+			@Override
+			protected DateFormat initialValue() {
+				return new SimpleDateFormat("yyyy/MM/dd HH:mm:ss");
+			}
+		};
 
-	  public Date parse(String source)
-	                     throws ParseException{
-	    Date d = df.get().parse(source);
-	    return d;
-	  }
-		  
-		public String format(Date time) {
-			 String d = df.get().format(time);
-			 return d;
+		public Date parse(String source) throws ParseException {
+			Date d = df.get().parse(source);
+			return d;
 		}
-		  
+
+		public String format(Date time) {
+			String d = df.get().format(time);
+			return d;
+		}
+
 	}
+
 	private static final DateFormatThreadSafe df = new DateFormatThreadSafe();
-	
-	private static final int delta = 2; //used for expr and discard time
-	private static final int tau = 2;		//used for discard time
 
+	private static final int delta = 2; // used for expr and discard time
+	private static final int tau = 2; // used for discard time
 
-	//ConcurrentHashMap of sessionIDs to a table of information on their message, location, and expiration data.
-	ConcurrentHashMap<String,ConcurrentHashMap<String,String>> sessionTable = new ConcurrentHashMap<String,ConcurrentHashMap<String,String>>();
+	// ConcurrentHashMap of sessionIDs to a table of information on their
+	// message, location, and expiration data.
+	ConcurrentHashMap<String, ConcurrentHashMap<String, String>> sessionTable = new ConcurrentHashMap<String, ConcurrentHashMap<String, String>>();
 
-	//Set of known servers, their ips and corresponding listening ports
-	ArrayList<ConcurrentHashMap<String,String>> mbrSet = new ArrayList<ConcurrentHashMap<String,String>>();
-	
-	//Cookie name that is searched for in this project
+	// Set of known servers, their ips and corresponding listening ports
+	ArrayList<ConcurrentHashMap<String, String>> mbrSet = new ArrayList<ConcurrentHashMap<String, String>>();
+
+	// Cookie name that is searched for in this project
 	String a2CookieName = "CS5300PROJ1SESSION";
 
-	//Garbage Collector - cleans up expired sessions from sessionTable
+	// Garbage Collector - cleans up expired sessions from sessionTable
 	GarbageCollector janitorThread = new GarbageCollector("name");
-	
-	//RPC Protocol
+
+	// RPC Protocol
 	RPCProtocol rpcp;
-	
-	//Flag to simulate a server crash
+
+	// Flag to simulate a server crash
 	boolean simulateCrash = false;
-	
+
 	/*
 	 * Constructor for initializing RPC handling
 	 */
-	public LargeScaleInfoA3(){
+	public LargeScaleInfoA3() {
 		rpcp = new RPCProtocol(sessionTable, mbrSet);
 	}
 
@@ -102,17 +91,21 @@ public class LargeScaleInfoA3 extends HttpServlet {
 	 * Base method handling requests
 	 */
 	@Override
-	public void doGet(HttpServletRequest request,HttpServletResponse response)	throws ServletException, IOException {
+	public void doGet(HttpServletRequest request, HttpServletResponse response)
+			throws ServletException, IOException {
 		PrintWriter out = response.getWriter();
+		
+		if(simulateCrash){
+			response.sendError(response.SC_EXPECTATION_FAILED);
+		}
 		
 		Cookie cookie = handleCookie(request, response);
 		handleCommand(response, request, out, cookie);
-		ConcurrentHashMap<String,String> parsed = parseCookieValue(cookie.getValue());
+		ConcurrentHashMap<String, String> parsed = parseCookieValue(cookie
+				.getValue());
 		String sessionID = parsed.get("sessionID");
 
 		out.println("<html>\n<body>\n<br>&nbsp;<br>");
-		
-		//PRINT SESSIONID
 
 		out.println(getMessage(sessionID));
 		out.println(getForm());
@@ -121,17 +114,19 @@ public class LargeScaleInfoA3 extends HttpServlet {
 		out.println(getSessionExp(sessionID));
 		out.println("<p> <u>Memberset:</u> " + rpcp.mbrSet);
 		out.println(getChoice(sessionID));
-		out.println("<p><u>IPP Primary:</u> " + parsed.get("IPP_1"));
-		if (parsed.containsKey("IPP_2")){
-			out.println("<p><u>IPP Backup:</u> " + parsed.get("IPP_2"));
-		}
-		else{
+		out.println("<p><u>IPP Primary:</u> "
+				+ sessionTable.get(sessionID).get("IPPPrimary"));
+		if (sessionTable.get(sessionID).containsKey("IPPBackup")) {
+			out.println("<p><u>IPP Backup:</u> "
+					+ sessionTable.get(sessionID).get("IPPBackup"));
+		} else {
 			out.println("<p><u>IPP Backup:</u> none");
 		}
 
 		out.println(getDiscardTime(sessionID));
 		out.println("</body>\n</html>");
 	}
+
 
 	/*
 	 * Examines cookies from the request to either extract or generate a new sessionID.  Additionally attaches a cookie to the response.
@@ -140,7 +135,7 @@ public class LargeScaleInfoA3 extends HttpServlet {
 		String sessionID = "-1";
 		Cookie a2Cookie = null;
 
-		//Check if there is a relevant cookie and extract sessionID
+		// Check if there is a relevant cookie and extract sessionID
 		if(request.getCookies() != null){
 			System.out.println(" -- old cookie --");
 			for(Cookie c : request.getCookies()){
@@ -152,8 +147,8 @@ public class LargeScaleInfoA3 extends HttpServlet {
 			}
 		}
 
-		//If no cookie was found, generate a new one
-		//Also fill sessionTable with new sessionID entry 
+		// If no cookie was found, generate a new one
+		// Also fill sessionTable with new sessionID entry 
 		if (a2Cookie == null) { 		 
 			System.out.println(" -- new cookie --");
 			sessionID = getNextSessionID(request);
@@ -180,7 +175,8 @@ public class LargeScaleInfoA3 extends HttpServlet {
 			a2Cookie = new Cookie(a2CookieName, cookieVal);
 		}
 
-		//Add cookie to response regardless, as it always contains new expiration and version information
+		// Add cookie to response regardless, as it always contains 
+		// new expiration and version information
 		response.addCookie(a2Cookie);
         System.out.println("Cookie sent Preliminary | " + a2Cookie.getValue());
 		return a2Cookie;
@@ -208,7 +204,6 @@ public class LargeScaleInfoA3 extends HttpServlet {
 		String message = request.getParameter("NewText");
 		String choice = ""; //picked primary, backup, or cache?
 		
-		//RPC stuff TODO 
 		
 		//---------(1) send sessionReadClient to IPP_primary and IPP_backup----------------
 		//IPPLocal
@@ -266,11 +261,9 @@ public class LargeScaleInfoA3 extends HttpServlet {
 				and make sure the cookie for the timed-out-or-lost session is deleted from the browser.*/
 				//out.write("<html>\n<body>\n<br>&nbsp;\n Session timed out or failed \n</body>\n</html>");
 				out.write("<html>\n<body>\n<br>&nbsp;\n<br><big><big><b>Session has timed out or failed<br>&nbsp;<br>\n</b></big></big>\n</body>\n</html>");
+				out.close();
 			}
 			else{
-				//TODO
-				//parse the data returned by IPP primary or backup, and use this data from now onwards
-                //Be sure to use rpcp.desanitizeDelimText(message) to desanitize the message for deliminators		279	                                
 				Date oldVersion_date = null;
 				Date readVersion_date = null;
 				String[] readResponse_split = readResponse.split("#");
@@ -298,7 +291,7 @@ public class LargeScaleInfoA3 extends HttpServlet {
 			System.out.println("LogOut command");
 			
 			rpcp.sessionDeleteClient(sessionID, oldVersion, local_IP, local_port);
-			sessionTable.remove(sessionID); //TODO: change to rpcp.sessionDeleteClient 
+			sessionTable.remove(sessionID); 
 			
 			out.write("<html>\n<body>\n<br>&nbsp;\n<br><big><big><b>Bye!<br>&nbsp;<br>\n</b></big></big>\n</body>\n</html>");
 			out.close();
@@ -501,8 +494,7 @@ public class LargeScaleInfoA3 extends HttpServlet {
 	}
 
 	/*
-	 * puts version number on html page
-	 * for debugging purposes
+	 * puts version number on html page for debugging purposes
 	 */
 	private String getVersionNumber(String sessionID) {
 		String out = "<p>Version Number: ";
@@ -553,8 +545,7 @@ public class LargeScaleInfoA3 extends HttpServlet {
 	}	
 	
 	/*
-	 * print sessionID on HTML page
-	 * for debugging purposes
+	 * print sessionID on HTML page for debugging purposes
 	 */
 	private String getSessionID(String sessionID) {
 		String out = "<p><u>SessionID:</u> ";
