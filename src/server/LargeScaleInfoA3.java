@@ -245,8 +245,8 @@ public class LargeScaleInfoA3 extends HttpServlet {
 			//---- check to see if IPP_primary or IPP_backup to see if they are equal to IPPLocal ---
 			if (IPP_1.equals(IPP_local) || IPP_2.equals(IPP_local)){
 	
-				//TODO: use local SSTbl? or use what was submitted in in form?
 				choice = "cache";
+				oldVersion = sessionTable.get(sessionID).get("version");
 			}
 			else{		
 				String readResponse = rpcp.sessionReadClient(sessionID, oldVersion, IP_addr_1, port_1);
@@ -265,7 +265,7 @@ public class LargeScaleInfoA3 extends HttpServlet {
 					}
 				}
 				
-				else {	//IPP ok
+				else {	//IPP Primary ok
 					choice = "primary";
 				}
 				
