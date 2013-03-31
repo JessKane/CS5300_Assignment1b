@@ -1,6 +1,3 @@
-/**
- * TODO: change type of mbrSet to prevent duplicate adds?
- */
 package server;
 
 import java.io.IOException;
@@ -144,21 +141,14 @@ public class LargeScaleInfoA3 extends HttpServlet {
 					sessionID = parsed.get("sessionID");
 					
 					//add members that are found in cookies
-					//TODO: change type of mbrSet to prevent duplicate adds?
 					String IPP_1 = parsed.get("IPP_1");
 					String[] IPP1_split = IPP_1.split("_");
-					ConcurrentHashMap<String,String> IPP1_hashmap = new ConcurrentHashMap<String,String>();
-					IPP1_hashmap.put("ip", IPP1_split[0]);
-					IPP1_hashmap.put("port", IPP1_split[1]);
-					mbrSet.add(IPP1_hashmap);
+					rpcp.checkForMbrship(IPP1_split[0], IPP1_split[1]);
 					
 					if (parsed.containsKey("IPP_2")){
 						String IPP_2 = parsed.get("IPP_2");
 						String[] IPP2_split = IPP_2.split("_");
-						ConcurrentHashMap<String,String> IPP2_hashmap = new ConcurrentHashMap<String,String>();
-						IPP2_hashmap.put("ip", IPP2_split[0]);
-						IPP2_hashmap.put("port", IPP2_split[1]);
-						mbrSet.add(IPP2_hashmap);
+						rpcp.checkForMbrship(IPP2_split[0], IPP2_split[1]);
 					}
 				}
 			}
@@ -273,10 +263,8 @@ public class LargeScaleInfoA3 extends HttpServlet {
 				//-----------(2)if there is a response from either, use found_Version and new data from now onwards---------------
 				//newData = message. If found_Version more recent than your version, then use newData as message
 				if (readResponse.equals("notFound")){
-					/*TODO: you should return an HTML page with a message saying the session timed out 
-					or failed (you will be able to tell the difference between these in some but possibly not all cases), 
-					and make sure the cookie for the timed-out-or-lost session is deleted from the browser.*/
-					//out.write("<html>\n<body>\n<br>&nbsp;\n Session timed out or failed \n</body>\n</html>");
+					/*return an HTML page with a message saying the session timed out 
+					or failed */
 					out.write("<html>\n<body>\n<br>&nbsp;\n<br><big><big><b>Session has timed out or failed<br>&nbsp;<br>\n</b></big></big>\n</body>\n</html>");
 					out.close();
 				}
@@ -409,7 +397,7 @@ public class LargeScaleInfoA3 extends HttpServlet {
 					counter ++;
 				}
 	
-					sessionTable.get(sessionID).put("discard_time", final_discardTime); //TODO: check: does discardTime get put into SSTbl? 
+					sessionTable.get(sessionID).put("discard_time", final_discardTime);
 					
 					//put choice (where you're getting data from) into sessionTable
 					sessionTable.get(sessionID).put("choice", choice); 
