@@ -11,6 +11,8 @@ import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Date;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.Collections;
 import javax.servlet.ServletException;
 import javax.servlet.annotation.WebServlet;
@@ -67,6 +69,8 @@ public class LargeScaleInfoA3 extends HttpServlet {
 	// Cookie name that is searched for in this project
 	String a2CookieName = "CS5300PROJ1SESSION";
 
+	//Read-Write lock
+	ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
 	// Garbage Collector - cleans up expired sessions from sessionTable
 	GarbageCollector janitorThread = new GarbageCollector("name");
 
@@ -101,8 +105,8 @@ public class LargeScaleInfoA3 extends HttpServlet {
 				.getValue());
 		String sessionID = parsed.get("sessionID");
 
+		//write out HTML page
 		out.println("<html>\n<body>\n<br>&nbsp;<br>");
-
 		out.println(getMessage(sessionID));
 		out.println(getForm());
 		out.println(getSessionID(sessionID));
@@ -118,7 +122,6 @@ public class LargeScaleInfoA3 extends HttpServlet {
 		} else {
 			out.println("<p><u>IPP Backup:</u> none");
 		}
-
 		out.println(getDiscardTime(sessionID));
 		out.println("</body>\n</html>");
 	}
@@ -170,9 +173,6 @@ public class LargeScaleInfoA3 extends HttpServlet {
 			sessionValues.put("expiration-timestamp", df.format(cal.getTime()));
 			String ip= getIPPLocal(rpcp);
             sessionValues.put("IPPPrimary", ip);	
-
-
-
 
 			sessionTable.put(sessionID + "", sessionValues);
 			String cookieVal = sessionID+"_"
@@ -231,6 +231,10 @@ public class LargeScaleInfoA3 extends HttpServlet {
 			if (parsed.containsKey("IPP_2")){
 				IPP_2 = parsed.get("sessionID");
 			}
+			
+			//starting to work with sessionTable, so obtain reader lock
+			Lock readerLock = lock.readLock();
+			readerLock.lock();
 			
 			//---- check to see if IPP_primary or IPP_backup to see if they are equal to IPPLocal ---
 			if (IPP_1.equals(IPP_local) || IPP_2.equals(IPP_local)){
@@ -401,6 +405,9 @@ public class LargeScaleInfoA3 extends HttpServlet {
 					
 					//put choice (where you're getting data from) into sessionTable
 					sessionTable.get(sessionID).put("choice", choice); 
+					
+					//done updating sessionTable - release reader lock
+					readerLock.unlock();
 					
 					//-------(4) make a new cookie with IPP primary and backup----------
 					//cookieVal so far only has session_ID and version number
@@ -618,6 +625,8 @@ System.out.println("array is " + underscoreParsed.length + " components long | "
 			while(true){
 				for (String sessionID: sessionTable.keySet()){
 						ConcurrentHashMap<String,String> session = sessionTable.get(sessionID);
+						Lock writelock = lock.writeLock();
+						writelock.lock();
 						if (session.containsKey("discard_time")){
 							String discardString= session.get("discard_time");
 	
@@ -636,6 +645,7 @@ System.out.println("array is " + underscoreParsed.length + " components long | "
 						else{
 							System.out.println("no discard time");
 						}
+						writelock.unlock();
 					
 
 				}
