@@ -117,8 +117,8 @@ public class RPCProtocol {
 	 * @return The reply is just an acknowledgement (operation id -> non null) or failure message (null)
 	 */
 	
-	public String sessionWriteClient(String SID, String version, String data, String discard_time, String destAddr, String destPort){
-		String s = Operation.SessionWrite.id + delim + SID + delim + version + delim + sanitizeDelimText(data) + delim + discard_time;
+	public String sessionWriteClient(String SID, String version, String data, String expiration_time, String discard_time, String destAddr, String destPort){
+		String s = Operation.SessionWrite.id + delim + SID + delim + version + delim + sanitizeDelimText(data) + delim + expiration_time + delim + discard_time;
 		try {
 			return new String(RPCClient(s, destAddr, destPort, "Write").getData(), "UTF-8").split(delim)[1];
 		} catch (UnsupportedEncodingException e) {
@@ -307,6 +307,7 @@ public class RPCProtocol {
 		sessionValues.put("version", dataStringArr[3]);
 		sessionValues.put("message", desanitizeDelimText(dataStringArr[4]));
 		sessionValues.put("expiration-timestamp", dataStringArr[5]);
+		sessionValues.put("discard_time", dataStringArr[6]);
 		
 		String ip = null;
 		try {

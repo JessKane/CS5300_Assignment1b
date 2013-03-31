@@ -21,6 +21,7 @@ import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Calendar;
+import java.util.Collections;
 import java.util.Date;
 import java.util.Hashtable;
 import java.util.Random;
@@ -141,16 +142,12 @@ public class LargeScaleInfoA3 extends HttpServlet {
 
 		//Check if there is a relevant cookie and extract sessionID
 		if(request.getCookies() != null){
-			System.out.println("old cookie");
+			System.out.println(" -- old cookie --");
 			for(Cookie c : request.getCookies()){
-					System.out.println("cookieVal of old cookie:" + c.getValue());
-				
 				ConcurrentHashMap<String,String> parsed= parseCookieValue(c.getValue());
-				//				System.out.println(c.getValue());
 				if(c.getName().equals(a2CookieName) && sessionTable.containsKey(parsed.get("sessionID"))){
 					a2Cookie = c;
 					sessionID = parsed.get("sessionID");
-					//					System.out.println("SessionID: " + sessionID);
 				}
 			}
 		}
@@ -241,9 +238,7 @@ public class LargeScaleInfoA3 extends HttpServlet {
 		}
 		else{		
 			String readResponse = rpcp.sessionReadClient(sessionID, oldVersion, IP_addr_1, port_1);
-			System.out.println("RPC Read response: " +  readResponse);
 			
-			System.out.println("Read Response from ipp1: " + readResponse);
 			//IPP backup
 			if (readResponse.equals("notFound")){		//IPP_1 failed	
 				if (parsed.containsKey("IPP_2")){
@@ -251,7 +246,6 @@ public class LargeScaleInfoA3 extends HttpServlet {
 					String IP_addr_2 = IPP2_split[0];
 					String port_2 = IPP2_split[1];
 					readResponse =  rpcp.sessionReadClient(sessionID, oldVersion, IP_addr_2, port_2);
-					System.out.println("Read Response from ipp2: " + readResponse);
 					
 					if (!(readResponse.equals("notFound"))){
 						choice="backup";
@@ -266,7 +260,6 @@ public class LargeScaleInfoA3 extends HttpServlet {
 			
 			//-----------(2)if there is a response from either, use found_Version and new data from now onwards---------------
 			//newData = message. If found_Version more recent than your version, then use newData as message
-			System.out.println("readResponse: " + readResponse);
 			if (readResponse.equals("notFound")){
 				/*TODO: you should return an HTML page with a message saying the session timed out 
 				or failed (you will be able to tell the difference between these in some but possibly not all cases), 
@@ -336,29 +329,30 @@ public class LargeScaleInfoA3 extends HttpServlet {
 			String newVersion = ((Integer)(Integer.parseInt(oldVersion) + 1)).toString();
 			sessionTable.get(sessionID).put("version", newVersion);
 			cookieVal += "_"+ newVersion;
-//			System.out.println("new version put in. cookieVal: "+cookieVal);
 
 
 			//update expiration timestamp
 			Calendar cal = Calendar.getInstance();
-			cal.add(Calendar.SECOND, SESSION_TIMEOUT_SECS);
+			cal.add(Calendar.SECOND, SESSION_TIMEOUT_SECS + delta);
 			String newExpr =  df.format(cal.getTime());
+			
 			sessionTable.get(sessionID).put("expiration-timestamp", newExpr);
+
 
 			//Update message for session
 			if(cmd.equals("Replace")) {
 				System.out.println("Replace command");
-				//				System.out.println("String length: " + message.length());
 				sessionTable.get(sessionID).put("message", message);
+				
 				
 			} else if(cmd.equals("Refresh")){
 				System.out.println("Refresh command");
+				
 				
 				//Maintain stored message for session to be displayed
 				message = sessionTable.get(sessionID).get("message");
 			} 
 
-//			System.out.println("new message put in. cookieVal: "+cookieVal);
 			
 			//-----(3) sessionWrite to random AS in memberset---------
 			
@@ -366,12 +360,20 @@ public class LargeScaleInfoA3 extends HttpServlet {
 			 * ArrayList<Hashtable<String,String>> random_mbrset = rpcp.getMembersClient(20, IP_addr_1, port_1);
 			 */
 			
-			Random rand = new Random();
+			//create an array with index numbers. Randomize using Collections.shuffle
+			ArrayList<Integer> randArray = new ArrayList<Integer>();
+			for (int k=0; k<mbrSet.size(); k++){
+				randArray.add(k);
+			}
+			Collections.shuffle(randArray);
 			String write_result = null;
 			String final_AS_ip = ""; 		//will hold the IP address of IPPbackup
 			String final_AS_port = "";		//will hold the port number of IPPbackup
 			String final_discardTime = "";
+			
+			int counter = 0;
 			//try until you get a response 
+
 			while (write_result == null){
 
 				//If the mbrSet size is empty, use default IPP backup (i.e. none)
@@ -379,22 +381,26 @@ public class LargeScaleInfoA3 extends HttpServlet {
 					break;
 				}
 
-				ConcurrentHashMap<String,String> random_AS = mbrSet.get(rand.nextInt(mbrSet.size())); //get random AS
+				ConcurrentHashMap<String,String> random_AS = mbrSet.get(randArray.get(counter)); //get random AS
+				System.out.println("Picking Random AS, Trial #"+(counter+1)+": " + random_AS);
 				Calendar discard_time_cal = Calendar.getInstance();
 				discard_time_cal.add(Calendar.SECOND, SESSION_TIMEOUT_SECS + 2*delta + tau);
 				String discard_time =  df.format(discard_time_cal.getTime());
 				
-				write_result = rpcp.sessionWriteClient(sessionID, newVersion, message, discard_time, random_AS.get("ip"), random_AS.get("port"));
+
+				write_result = rpcp.sessionWriteClient(sessionID, newVersion, message, newExpr, discard_time, random_AS.get("ip"), random_AS.get("port"));
 				
 				if (write_result != null){
 					final_AS_ip = random_AS.get("ip");
 					final_AS_port = random_AS.get("port");
 					final_discardTime = discard_time;
 				}
+				
+				counter ++;
 			}
-		
-			sessionTable.get(sessionID).put("discard_time", final_discardTime); //TODO: check: does discardTime get put into SSTbl? 
 
+			sessionTable.get(sessionID).put("discard_time", final_discardTime); //TODO: check: does discardTime get put into SSTbl? 
+			
 			//put choice (where you're getting data from) into sessionTable
 			sessionTable.get(sessionID).put("choice", choice); 
 			
@@ -615,22 +621,23 @@ System.out.println("array is " + underscoreParsed.length + " components long | "
 			while(true){
 				for (String sessionID: sessionTable.keySet()){
 					ConcurrentHashMap<String,String> session = sessionTable.get(sessionID);
-					String exprString= session.get("expiration-timestamp");
+					if (session.containsKey("discard_time")){
+						String discardString= session.get("discard_time");
 
-					Date expDate = null;
-					try {
-						expDate = df.parse(exprString);
-					} catch (ParseException e) {
-						System.out.println("Failure in parsing date");
-					}
-					if ((new Date()).after(expDate)){
-						sessionTable.remove(sessionID);
-						System.out.println("sessiontable size: "+ sessionTable.size());
-						System.out.println("Session " + sessionID + " has expired | " 
-								+ "sessiontable size: "+ sessionTable.size());
+						Date discardDate = null;
+						try {
+							discardDate = df.parse(discardString);
+						} catch (ParseException e) {
+							System.out.println("Failure in parsing date");
+						}
+						if ((new Date()).after(discardDate)){
+							sessionTable.remove(sessionID);
+							System.out.println("Session " + sessionID + " has expired | " 
+									+ "sessiontable size: "+ sessionTable.size());
+						}
 					}
 					else{
-						//					System.out.println("Session #"+sessionID + " not expired");
+						System.out.println("no discard time");
 					}
 
 				}
