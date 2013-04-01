@@ -60,9 +60,9 @@ public class RPCProtocol {
 		
 		rpcs = new RPCServer();
 		//Temporary listening servers
-		RPCServer rpcs1 = new RPCServer();
-		RPCServer rpcs2 = new RPCServer();
-		RPCServer rpcs3 = new RPCServer();
+		//RPCServer rpcs1 = new RPCServer();
+		//RPCServer rpcs2 = new RPCServer();
+		//RPCServer rpcs3 = new RPCServer();
 		
 	}
 	
@@ -467,10 +467,10 @@ public class RPCProtocol {
 				
 				//REMOVE AFTER TESTING, THIS ADDS ONES SELF TO MBRSET
 				 //ip added is a hashmap that stores server stores the server's IP addr and port 
-				mbrSet.add(ipToConcurrentHashMap(InetAddress.getLocalHost().getHostAddress(),serverPort));
-			} catch (UnknownHostException e) {
+				//mbrSet.add(ipToConcurrentHashMap(InetAddress.getLocalHost().getHostAddress(),serverPort));
+			} /*catch (UnknownHostException e) {
 				e.printStackTrace();
-			} catch (SocketException e1) {
+			}*/ catch (SocketException e1) {
 				e1.printStackTrace();
 			}
 			
@@ -552,8 +552,17 @@ public class RPCProtocol {
 	 */
 	public void checkForMbrship(String returnAddr, String returnPort){
 		boolean flag = false;
+		
+		try{
+			if(returnAddr.equals(InetAddress.getLocalHost().getHostAddress()) && 
+					returnPort.equals(this.getUDPLocalPort())){
+					flag = true;
+			}
+		} catch (UnknownHostException e) {
+			e.printStackTrace();
+		}
 		for (ConcurrentHashMap<String, String> mbr: mbrSet){
-			if(mbr.get("ip").equals(returnAddr) && mbr.get("port").equals(returnPort)){
+			if(mbr.get("ip").equals(returnAddr) && mbr.get("port").equals(returnPort) ){
 				flag = true;
 			}
 		}
