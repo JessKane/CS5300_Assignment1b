@@ -10,6 +10,7 @@ import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Date;
+import java.util.Hashtable;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -210,7 +211,7 @@ public class LargeScaleInfoA3 extends HttpServlet {
 			String cmd = request.getParameter("cmd");
 			String message = request.getParameter("NewText");
 			String choice = ""; //picked primary, backup, or cache?
-			
+			System.out.println("hello?");
 			
 			//---------(1) send sessionReadClient to IPP_primary and IPP_backup----------------
 			//IPPLocal
@@ -232,19 +233,24 @@ public class LargeScaleInfoA3 extends HttpServlet {
 				IPP_2 = parsed.get("sessionID");
 			}
 			
+			System.out.println("hello11?");
 			//starting to work with sessionTable, so obtain reader lock
 			Lock readerLock = lock.readLock();
+			System.out.println("hello22?");
 			readerLock.lock();
 			
+			System.out.println("hello2?");
 			//---- check to see if IPP_primary or IPP_backup to see if they are equal to IPPLocal ---
 			if (IPP_1.equals(IPP_local) || IPP_2.equals(IPP_local)){
-	
+				System.out.println("hello3?");
 				choice = "cache";
 				oldVersion = sessionTable.get(sessionID).get("version");
 			}
+			//---- session data is not local.  We'll have to read and get the info from the IPPprimary or Backup
 			else{		
 				String readResponse = rpcp.sessionReadClient(sessionID, oldVersion, IP_addr_1, port_1);
 				
+				System.out.println("hello4?");
 				//IPP backup
 				if (readResponse.equals("notFound")){		//IPP_1 failed	
 					if (parsed.containsKey("IPP_2")){
@@ -263,6 +269,26 @@ public class LargeScaleInfoA3 extends HttpServlet {
 					choice = "primary";
 				}
 				
+		    	//Accelerating the Group Membership:
+				//If this is a newly initialized server, bootstrap for additional members from IPP primary (or backup if that timesout)
+		    	if(mbrSet.size() <= 2){
+		    		ArrayList<Hashtable<String, String>> newMembers;
+		    		newMembers = rpcp.getMembersClient(20, IP_addr_1, port_1);
+		    		//If IPPprimary timed out, try secondary
+		    		if(newMembers == null){
+		    			String[] IPP2_split = IPP_2.split("_");
+						String IP_addr_2 = IPP2_split[0];
+						String port_2 = IPP2_split[1];
+						newMembers = rpcp.getMembersClient(20, IP_addr_2, port_2);
+		    		}
+		    		
+		    		//Add all members if not null, i.e. one of the responses didn't timeout
+		    		if(newMembers != null){
+		    			for(Hashtable<String, String> mem : newMembers){
+		    				rpcp.checkForMbrship(mem.get("ip"), mem.get("port"));
+		    			}
+		    		}
+		    	}
 				
 				//-----------(2)if there is a response from either, use found_Version and new data from now onwards---------------
 				//newData = message. If found_Version more recent than your version, then use newData as message
@@ -290,6 +316,10 @@ public class LargeScaleInfoA3 extends HttpServlet {
 					}
 				}
 			}
+			
+			//**
+			//**  HANDLE SPECIFIED GET COMMAND
+			//**
 			
 			//Don't do anything if no command was provided
 			if(cmd == null){
@@ -622,9 +652,10 @@ System.out.println("array is " + underscoreParsed.length + " components long | "
 
 		public void run(){
 			while(true){
+				Lock writelock = lock.writeLock();
 				for (String sessionID: sessionTable.keySet()){
 						ConcurrentHashMap<String,String> session = sessionTable.get(sessionID);
-						Lock writelock = lock.writeLock();
+						
 						writelock.lock();
 						if (session.containsKey("discard_time")){
 							String discardString= session.get("discard_time");
@@ -644,10 +675,8 @@ System.out.println("array is " + underscoreParsed.length + " components long | "
 						else{
 							//System.out.println("no discard time");
 						}
-						writelock.unlock();
-					
-
 				}
+				writelock.unlock();
 				/*try {
 					sleep(5000);
 				} catch (InterruptedException e) {
