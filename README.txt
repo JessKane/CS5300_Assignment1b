@@ -91,7 +91,7 @@ The methods for RPC communication is divided into client side and server side me
 
 Extra Credit
 ==================
-(*******TODO*******)
+We implemented the accelerated Group Membership Protocol for quickly getting an initialized server up to speed with its mbrSet.  This is performed in the handleCommand method after it's been established where the session's most up to date version is from.  If a server has 2 or fewer members in its memberset and recieves a request containing a cookie with the most up to date session info on an IPPprimary and secondary that is not local, it performs a getMembers() call.  The IPPPrimary (or secondary if the first times out) responds with a list of its own mbrSet for this local server to add to its own.  The max size of the requested set is 20, which is expected to be small enough to be sent over a single packet.  This will allow the new server to more quickly expand its mbrSet size and increase its knowledge of other live servers.
 
 
 Elastic Beanstalk Documentation
