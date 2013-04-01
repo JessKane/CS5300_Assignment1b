@@ -1,10 +1,17 @@
-CS5300_Assignment1b
-===================
+CS5300 Assignment 1b
+Eric Swidler(ejs296), Alicia Chui (awc64), and Jessica Kane (jlk283)
+
 
 SOURCE FILES
 ============
 LargeScaleInfoA3.java - handles client requests and sending RPC calls
 RPCPRotocol.java - defines RPC methods
+
+
+DEPLOYMENT LOCATION
+============
+http://cs5300-assignment1b-env-mvuuanm2jf.elasticbeanstalk.com/index.html
+
 
 Cookie Format:
 =============
@@ -21,7 +28,6 @@ which returns a ConcurrentHashMap where the keys are "sessionID", "version",
 "IPP_1", and "IPP_2". The method has been designed to support cookie values 
 that had more than 2 IPP's (the keys would automatically generated to be 
 IPP_3, IPP_4, etc.) 
-
 
 
 Getting Session State
@@ -90,8 +96,41 @@ Extra Credit
 
 Elastic Beanstalk Documentation
 ===========================
-(*******TODO*********)
+For our current deployment, the environment is CS5300_Assignment1b_Env, and CS5300_Assignment1b_App. The application can be accessed at http://cs5300-assignment1b-env-mvuuanm2jf.elasticbeanstalk.com/index.html . The environment is set up to be 19-k fault tolerant. Once a server is detected as down (which could be caused by hitting the crash button), the server is replaced by the Elastic Beanstalk auto scaler. 
 
+The application is uploaded to AWS Elastic Beanstalk, by a war file or Eclipse git push. The following settings are changed from the default values via. altering the environment configuration on the console:
 
+Health Check
+---------------------------
+Application Health Check URL: /index.html
+Health Check Interval: 5
+Health Check Timeout: 2
+Healthy Check Count Threshold: 2
+Unhealthy Check Count Threshold: 2
+
+Auto Scaling
+---------------------------
+Minimum Instance Count: 20
+Maximum Instance Count: 24
+
+Scaling Trigger
+---------------------------
+Trigger Measurement: UnhealthyHostCount
+Trigger Statistic: Minimum
+Unit of Measurement: Count
+Measurement Period: 1
+Breach Duration: 1
+Upper Threshold: 1
+Upper Breach Scale Increment: 1
+Lower Threshold: 0
+Lower Breach Scale Increment: -1
+
+And, lastly, the auto-scaler needs to use the Elastic Beanstalk definition of a server crash instead of the EC2 definition of the server crash. (ELB dictates a crash as failing a health check, while EC2 only defines a crash as not running.) This can only be changed through the AWS command line interface, using the command: 
+
+as-update-auto-scaling-group MY_GROUP_NAME --health-check-type ELB  --grace-period 60   
+
+In our case, it's:
+
+as-update-auto-scaling-group awseb-e-xkefv25gxi-stack-AWSEBAutoScalingGroup-1VIJWCYPBJBMB --health-check-type ELB  --grace-period 60 
 
 

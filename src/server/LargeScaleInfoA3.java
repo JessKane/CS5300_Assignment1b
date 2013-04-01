@@ -1,6 +1,3 @@
-/**
- * TODO: change type of mbrSet to prevent duplicate adds?
- */
 package server;
 
 import java.io.IOException;
@@ -14,6 +11,8 @@ import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Date;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.Collections;
 import javax.servlet.ServletException;
 import javax.servlet.annotation.WebServlet;
@@ -70,6 +69,8 @@ public class LargeScaleInfoA3 extends HttpServlet {
 	// Cookie name that is searched for in this project
 	String a2CookieName = "CS5300PROJ1SESSION";
 
+	//Read-Write lock
+	ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
 	// Garbage Collector - cleans up expired sessions from sessionTable
 	GarbageCollector janitorThread = new GarbageCollector("name");
 
@@ -104,8 +105,8 @@ public class LargeScaleInfoA3 extends HttpServlet {
 				.getValue());
 		String sessionID = parsed.get("sessionID");
 
+		//write out HTML page
 		out.println("<html>\n<body>\n<br>&nbsp;<br>");
-
 		out.println(getMessage(sessionID));
 		out.println(getForm());
 		out.println(getSessionID(sessionID));
@@ -121,7 +122,6 @@ public class LargeScaleInfoA3 extends HttpServlet {
 		} else {
 			out.println("<p><u>IPP Backup:</u> none");
 		}
-
 		out.println(getDiscardTime(sessionID));
 		out.println("</body>\n</html>");
 	}
@@ -144,21 +144,14 @@ public class LargeScaleInfoA3 extends HttpServlet {
 					sessionID = parsed.get("sessionID");
 					
 					//add members that are found in cookies
-					//TODO: change type of mbrSet to prevent duplicate adds?
 					String IPP_1 = parsed.get("IPP_1");
 					String[] IPP1_split = IPP_1.split("_");
-					ConcurrentHashMap<String,String> IPP1_hashmap = new ConcurrentHashMap<String,String>();
-					IPP1_hashmap.put("ip", IPP1_split[0]);
-					IPP1_hashmap.put("port", IPP1_split[1]);
-					mbrSet.add(IPP1_hashmap);
+					rpcp.checkForMbrship(IPP1_split[0], IPP1_split[1]);
 					
 					if (parsed.containsKey("IPP_2")){
 						String IPP_2 = parsed.get("IPP_2");
 						String[] IPP2_split = IPP_2.split("_");
-						ConcurrentHashMap<String,String> IPP2_hashmap = new ConcurrentHashMap<String,String>();
-						IPP2_hashmap.put("ip", IPP2_split[0]);
-						IPP2_hashmap.put("port", IPP2_split[1]);
-						mbrSet.add(IPP2_hashmap);
+						rpcp.checkForMbrship(IPP2_split[0], IPP2_split[1]);
 					}
 				}
 			}
@@ -180,9 +173,6 @@ public class LargeScaleInfoA3 extends HttpServlet {
 			sessionValues.put("expiration-timestamp", df.format(cal.getTime()));
 			String ip= getIPPLocal(rpcp);
             sessionValues.put("IPPPrimary", ip);	
-
-
-
 
 			sessionTable.put(sessionID + "", sessionValues);
 			String cookieVal = sessionID+"_"
@@ -242,6 +232,10 @@ public class LargeScaleInfoA3 extends HttpServlet {
 				IPP_2 = parsed.get("sessionID");
 			}
 			
+			//starting to work with sessionTable, so obtain reader lock
+			Lock readerLock = lock.readLock();
+			readerLock.lock();
+			
 			//---- check to see if IPP_primary or IPP_backup to see if they are equal to IPPLocal ---
 			if (IPP_1.equals(IPP_local) || IPP_2.equals(IPP_local)){
 	
@@ -273,10 +267,8 @@ public class LargeScaleInfoA3 extends HttpServlet {
 				//-----------(2)if there is a response from either, use found_Version and new data from now onwards---------------
 				//newData = message. If found_Version more recent than your version, then use newData as message
 				if (readResponse.equals("notFound")){
-					/*TODO: you should return an HTML page with a message saying the session timed out 
-					or failed (you will be able to tell the difference between these in some but possibly not all cases), 
-					and make sure the cookie for the timed-out-or-lost session is deleted from the browser.*/
-					//out.write("<html>\n<body>\n<br>&nbsp;\n Session timed out or failed \n</body>\n</html>");
+					/*return an HTML page with a message saying the session timed out 
+					or failed */
 					out.write("<html>\n<body>\n<br>&nbsp;\n<br><big><big><b>Session has timed out or failed<br>&nbsp;<br>\n</b></big></big>\n</body>\n</html>");
 					out.close();
 				}
@@ -409,10 +401,13 @@ public class LargeScaleInfoA3 extends HttpServlet {
 					counter ++;
 				}
 	
-					sessionTable.get(sessionID).put("discard_time", final_discardTime); //TODO: check: does discardTime get put into SSTbl? 
+					sessionTable.get(sessionID).put("discard_time", final_discardTime);
 					
 					//put choice (where you're getting data from) into sessionTable
 					sessionTable.get(sessionID).put("choice", choice); 
+					
+					//done updating sessionTable - release reader lock
+					readerLock.unlock();
 					
 					//-------(4) make a new cookie with IPP primary and backup----------
 					//cookieVal so far only has session_ID and version number
@@ -629,6 +624,8 @@ System.out.println("array is " + underscoreParsed.length + " components long | "
 			while(true){
 				for (String sessionID: sessionTable.keySet()){
 						ConcurrentHashMap<String,String> session = sessionTable.get(sessionID);
+						Lock writelock = lock.writeLock();
+						writelock.lock();
 						if (session.containsKey("discard_time")){
 							String discardString= session.get("discard_time");
 	
@@ -647,6 +644,7 @@ System.out.println("array is " + underscoreParsed.length + " components long | "
 						else{
 							//System.out.println("no discard time");
 						}
+						writelock.unlock();
 					
 
 				}

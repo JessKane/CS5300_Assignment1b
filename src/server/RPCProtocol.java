@@ -502,7 +502,7 @@ public class RPCProtocol {
 				    String callID = inData.split(delim)[0] + delim;
 				    String returnClientPort = recvPkt.getPort() + "";
 				    String returnServerPort = callID.split(":")[1].replace(delim, "");
-				    checkForMbrship(returnAddr, returnServerPort);
+				    checkForMbrship(returnAddr.getHostAddress(), returnServerPort);
 				    byte[] outBuf = null;
 				    	
 				    //Check the operation code and send to corresponding method
@@ -550,18 +550,18 @@ public class RPCProtocol {
 	 * Checks if an encountered ip address is in the mbrSet.  If it hasn't been encountered
 	 * then it is added to the mbrSet.
 	 */
-	private void checkForMbrship(InetAddress returnAddr, String returnPort){
+	public void checkForMbrship(String returnAddr, String returnPort){
 		boolean flag = false;
 		for (ConcurrentHashMap<String, String> mbr: mbrSet){
-			if(mbr.get("ip").equals(returnAddr.getHostAddress()) && mbr.get("port").equals(returnPort)){
+			if(mbr.get("ip").equals(returnAddr) && mbr.get("port").equals(returnPort)){
 				flag = true;
 			}
 		}
 		if (!flag){
 			ConcurrentHashMap<String, String> toInsert = new ConcurrentHashMap<String, String>();
-			toInsert.put("ip", returnAddr.getHostAddress());
+			toInsert.put("ip", returnAddr);
 			toInsert.put("port", returnPort);
-			print("Added new member to memberset :" + returnAddr.getHostAddress() + ":" + returnPort);
+			print("Added new member to memberset :" + ":" + returnPort);
 			mbrSet.add(toInsert);
 		}
 	}
