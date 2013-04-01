@@ -66,15 +66,18 @@ public class RPCProtocol {
 		
 	}
 	
+	//Shortcut for printing
 	private void print(String s){
 		System.out.println(s);
 	}
 
+	//Tracking callID that is realtive to this specific RPC Client
 	private String getCallID(){
 		callID_num += 1;
 		return callID_num + "";
 	}
 	
+	//Gets the server port for this RPC Protocol instance
 	public String getUDPLocalPort(){
 		return rpcs.getLocalPort();
 	}
@@ -89,8 +92,6 @@ public class RPCProtocol {
 	 * @param destPort, destination port (null for all mbrSet)
 	 * @return the found_version and data deliminated by a #.  notFound message is returned if none is found
 	 */
-	
-	//HAVE TO ACCOUNT FOR POUNDS IN MESSAGE
 	public String sessionReadClient(String SID, String version, String destAddr, String destPort){
 		String s = Operation.SessionRead.id + delim + SID + delim + version;
 		try {
@@ -115,9 +116,8 @@ public class RPCProtocol {
 	 * @param destPort, destination port (null for all mbrSet)
 	 * @return The reply is just an acknowledgement (operation id -> non null) or failure message (null)
 	 */
-	
-	public String sessionWriteClient(String SID, String version, String data, String discard_time, String destAddr, String destPort){
-		String s = Operation.SessionWrite.id + delim + SID + delim + version + delim + sanitizeDelimText(data) + delim + discard_time;
+	public String sessionWriteClient(String SID, String version, String data, String expiration_time, String discard_time, String destAddr, String destPort){
+		String s = Operation.SessionWrite.id + delim + SID + delim + version + delim + sanitizeDelimText(data) + delim + expiration_time + delim + discard_time;
 		try {
 			return new String(RPCClient(s, destAddr, destPort, "Write").getData(), "UTF-8").split(delim)[1];
 		} catch (UnsupportedEncodingException e) {
@@ -183,6 +183,21 @@ public class RPCProtocol {
 		return mbrs;
 	}
 	
+	/**
+	 * Generalized sending of Client message to another RPC Protocol instance's
+	 * Server port.  This method then waits for a responce that provides a call
+	 * id that corresponds to the one provided in the sending call.
+	 * 
+	 * If the destination address and port are null, then communications are sent 
+	 * to all members of the memberset (this isnt currently used but kept for testing
+	 * purposes).
+	 * 
+	 * @param s, the string of serialized data that is sent
+	 * @param destAddr, the destination address
+	 * @param destPort, the destination port
+	 * @param cmd, the type of RPC method being used
+	 * @return, the received packet from the RPC Server
+	 */
 	@SuppressWarnings("unchecked")
 	private DatagramPacket RPCClient(String s, String destAddr, String destPort, String cmd) {
 		//Socket for sending and receiving datagram packets, initialized in constructor
@@ -191,30 +206,34 @@ public class RPCProtocol {
 		int serverPort = -1;
 		
 		try {
-			
+			//Create a new socket specific to this client call 
 			rpcSocket = new DatagramSocket();
 			rpcSocket.setSoTimeout(timeout_length );
 		
 			serverPort = rpcSocket.getLocalPort();
 			
+			//Compose the outbound write stream from the input string
 			String callID = getCallID();
 			s = callID + ":" + rpcs.getLocalPort() + delim + s;
 			print("\nRPC Client Send " + cmd + " at " + serverPort + " to " + destAddr + ":" + destPort + " | " + s);
 			
 			ByteArrayOutputStream outputStream = new ByteArrayOutputStream( );
-			
 			outputStream.write( s.getBytes() );
-
 			byte[] outBuf = outputStream.toByteArray( );
 			
+			//Use helper method to send outstream to destination
 			if(destAddr != null && destPort != null){
 				clientSendPkt(outBuf, destAddr, destPort, rpcSocket);
-			} else{
+			}
+			//Send this communication to all members of mbrSet
+			else{
 				for( ConcurrentHashMap<String, String> mbr : 
 					(ArrayList<ConcurrentHashMap<String, String>>)mbrSet.clone()  ) {
 					clientSendPkt(outBuf, (String) mbr.get("ip"), (String) mbr.get("port"), rpcSocket);
 				}
 			}
+			
+			//Listen for instream untill a call comes in with the correct callID
 			byte [] inBuf = new byte[Byte.MAX_VALUE];
 			recvPkt = new DatagramPacket(inBuf, inBuf.length);
 				do {
@@ -236,6 +255,9 @@ public class RPCProtocol {
 			System.out.println("\nIO EXCEPTION RPC: Client " + serverPort);
 			removeMbr(destAddr, destPort);
 		} 
+		//Close the socket for this client call if its still open
+		if(rpcSocket != null)
+			rpcSocket.close();
 		
 		return recvPkt;
 	}
@@ -253,6 +275,7 @@ public class RPCProtocol {
 		print("mbrSet : " + mbrSet.clone().toString());
 	}
 	
+	//Helper method for sending a packet of data to a destination address and port
 	private void clientSendPkt(byte[] outBuf, String destAddr, String destPort, DatagramSocket rpcSocket) {
 		InetAddress addr;
 		try {
@@ -269,6 +292,15 @@ public class RPCProtocol {
 		}
 	}
 
+	/**
+	 * Serverside handling of the sessionRead command.  Creates a message with
+	 * the found version and data of the session deliminated.  Else, if not found
+	 * it returns a "notfound" string.
+	 * 
+	 * @param data, data in request
+	 * @param length, length of data
+	 * @return, response data
+	 */
 	private String SessionRead(byte[] data, int length) {
 		String[] dataStringArr = null;
 		
@@ -279,8 +311,6 @@ public class RPCProtocol {
 		}
 		
 		String SID = dataStringArr[2];
-//		String version = dataStringArr[3];
-		
 		
 		if(sessionTable.containsKey(SID)){
 			return sessionTable.get(SID).get("version") + delim + sessionTable.get(SID).get("message");
@@ -288,6 +318,17 @@ public class RPCProtocol {
 			return "notFound";
 		}
 	}
+	
+	/**
+	 * Serverside handling of the SessionWrite command
+	 * 
+	 * @param data, data in request
+	 * @param length
+	 * @param rpcSocket, server port of client
+	 * @param reqIP, requesting IP
+	 * @param reqPort, requesting Port
+	 * @return response data
+	 */
 	private String SessionWrite(byte[] data, int length, DatagramSocket rpcSocket, String reqIP, String reqPort) {
 		String[] dataStringArr = null;
 		
@@ -306,6 +347,7 @@ public class RPCProtocol {
 		sessionValues.put("version", dataStringArr[3]);
 		sessionValues.put("message", desanitizeDelimText(dataStringArr[4]));
 		sessionValues.put("expiration-timestamp", dataStringArr[5]);
+		sessionValues.put("discard_time", dataStringArr[6]);
 		
 		String ip = null;
 		try {
@@ -321,6 +363,16 @@ public class RPCProtocol {
 		
 		return "ack";
 	}
+	
+	/**
+	 * Serverside handling of sessionDelete command.  This removes the session
+	 * on this server if it is found and is an older/the same version as the
+	 * requested deleted session.  Sends an "ack" acknowledgement if successful
+	 * 
+	 * @param data, data in request
+	 * @param length, length of data
+	 * @return response data
+	 */
 	private String SessionDelete(byte[] data, int length) {
 		String[] dataStringArr = null;
 		
@@ -350,6 +402,15 @@ public class RPCProtocol {
 			return null;
 		}
 	}
+	
+	/**
+	 * Serverside handling of the getMembers method.  This composes a deliminated
+	 * list of members of a size specified in the message (sz).
+	 * 
+	 * @param data, data in thre request
+	 * @param length, length of data
+	 * @return, the response bytes
+	 */
 	private String GetMembers(byte[] data, int length) {
 		String[] dataStringArr = null;
 		
@@ -385,9 +446,17 @@ public class RPCProtocol {
 		return myip;
 	}
 	
+	//This constructs the RPC Server thread that continually listens for requests
+	//(unless a crash stops the thread and closes the port).
 	private class RPCServer extends Thread{
+		
+		//Continual socket for the server
 		private DatagramSocket rpcSocket;
+		
+		//Port for the socket
 		private int serverPort;
+		
+		//Flag to simulate the crash and stop the thread
 		public boolean simulateCrash = false;
 		
 		RPCServer(){
@@ -409,11 +478,14 @@ public class RPCProtocol {
 			start();
 		}
 		
-		
+		//This is a higher level method that allows access to this RPC Protocol
+		//Instance's server port, which is a vital part of the serverID
 		public String getLocalPort() {
 			return serverPort + "";
 		}
 
+		//Running of the actual thread, listing on the RPC server socket, finding the corresponding
+		//method according to the operation code, and then sending a responce back.
 		public void run(){
 			while(!simulateCrash) {
 			    byte[] inBuf = new byte[Byte.MAX_VALUE];
@@ -423,7 +495,7 @@ public class RPCProtocol {
 				
 				    InetAddress returnAddr = recvPkt.getAddress();
 				    
-				    // here inBuf contains the callID and operationCode
+				    // Here inBuf contains the callID and operationCode
 				    String inData = new String(recvPkt.getData(), "UTF-8");
 				    print("\nRPC Server Recieve at " + this.getLocalPort() + " | " + inData);
 				    int operationCode = Integer.parseInt(inData.split(delim)[1]); // get requested operationCode
@@ -433,6 +505,7 @@ public class RPCProtocol {
 				    checkForMbrship(returnAddr, returnServerPort);
 				    byte[] outBuf = null;
 				    	
+				    //Check the operation code and send to corresponding method
 			    	if(operationCode == Operation.SessionRead.getId()){
 			    		outBuf = (callID + SessionRead(recvPkt.getData(), recvPkt.getLength())).getBytes();
 					}
@@ -450,6 +523,7 @@ public class RPCProtocol {
 			    		print("INVALID RPC COMMAND RECIEVED");
 			    	}
 			    	
+			    	//Compose and send response to client
 				    DatagramPacket sendPkt = new DatagramPacket(outBuf, outBuf.length,
 				    returnAddr, Integer.parseInt(returnClientPort));
 				    
@@ -473,7 +547,8 @@ public class RPCProtocol {
 	}
 	
 	/*
-	 * Checks if an encountered ip address is in the mbrSet
+	 * Checks if an encountered ip address is in the mbrSet.  If it hasn't been encountered
+	 * then it is added to the mbrSet.
 	 */
 	private void checkForMbrship(InetAddress returnAddr, String returnPort){
 		boolean flag = false;
@@ -498,15 +573,17 @@ public class RPCProtocol {
 		rpcs.simulateCrash = true;
 	}
 	
+	//Sanitizes text between deliminators
 	public String sanitizeDelimText(String s){
 		return s.replace(delim, sanitizeDelim);
 	}
 	
+	//Desanitizes text between deliminators
 	public String desanitizeDelimText(String s){
 		return s.replace(sanitizeDelim, delim);
 	}
 	
-	//Operations
+	//Operations that assign RPC methods to integers
 	public enum Operation {
 		SessionRead(1, "SessionRead"),
 		SessionWrite(2, "SessionWrite"),
