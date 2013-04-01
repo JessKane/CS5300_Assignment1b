@@ -211,7 +211,6 @@ public class LargeScaleInfoA3 extends HttpServlet {
 			String cmd = request.getParameter("cmd");
 			String message = request.getParameter("NewText");
 			String choice = ""; //picked primary, backup, or cache?
-			System.out.println("hello?");
 			
 			//---------(1) send sessionReadClient to IPP_primary and IPP_backup----------------
 			//IPPLocal
@@ -233,16 +232,12 @@ public class LargeScaleInfoA3 extends HttpServlet {
 				IPP_2 = parsed.get("sessionID");
 			}
 			
-			System.out.println("hello11?");
 			//starting to work with sessionTable, so obtain reader lock
 			Lock readerLock = lock.readLock();
-			System.out.println("hello22?");
 			readerLock.lock();
 			
-			System.out.println("hello2?");
 			//---- check to see if IPP_primary or IPP_backup to see if they are equal to IPPLocal ---
 			if (IPP_1.equals(IPP_local) || IPP_2.equals(IPP_local)){
-				System.out.println("hello3?");
 				choice = "cache";
 				oldVersion = sessionTable.get(sessionID).get("version");
 			}
@@ -250,7 +245,6 @@ public class LargeScaleInfoA3 extends HttpServlet {
 			else{		
 				String readResponse = rpcp.sessionReadClient(sessionID, oldVersion, IP_addr_1, port_1);
 				
-				System.out.println("hello4?");
 				//IPP backup
 				if (readResponse.equals("notFound")){		//IPP_1 failed	
 					if (parsed.containsKey("IPP_2")){
