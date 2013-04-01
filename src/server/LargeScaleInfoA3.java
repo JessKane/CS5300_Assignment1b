@@ -379,75 +379,107 @@ public class LargeScaleInfoA3 extends HttpServlet {
 					message = sessionTable.get(sessionID).get("message");
 				} 
 	
-				
-				//-----(3) sessionWrite to random AS in memberset---------
-				
-				/*TODO: use mbrset, or this: 
-				 * ArrayList<Hashtable<String,String>> random_mbrset = rpcp.getMembersClient(20, IP_addr_1, port_1);
-				 */
-				
-				//create an array with index numbers. Randomize using Collections.shuffle
-				ArrayList<Integer> randArray = new ArrayList<Integer>();
-				for (int k=0; k<mbrSet.size(); k++){
-					randArray.add(k);
+				//for Extra Credit 3.7a - Improved Garbage Collection 
+				String IPP_3 = "";
+				if (parsed.containsKey("IPP_3")){
+					IPP_3 = parsed.get("IPP_3");
 				}
-				Collections.shuffle(randArray);
-				String write_result = null;
-				String final_AS_ip = ""; 		//will hold the IP address of IPPbackup
-				String final_AS_port = "";		//will hold the port number of IPPbackup
-				String final_discardTime = "";
 				
-				int counter = 0;
-				//try until you get a response 
-	
-				while (write_result == null){
-	
-					//If the mbrSet size is empty, use default IPP backup (i.e. none)
-					if(mbrSet.size() == 0){
-						break;
-					}
-	
-					ConcurrentHashMap<String,String> random_AS = mbrSet.get(randArray.get(counter)); //get random AS
-					System.out.println("Picking Random AS, Trial #"+(counter+1)+": " + random_AS);
+				//if there exists a third IPP in the cookie
+				if (!(IPP_local.equals(IPP_1) || IPP_local.equals(IPP_2)
+						|| IPP_local.equals(IPP_3)) && !IPP_3.equals("")){
+
+					String[] IPP3_split = IPP_3.split("_");
+					String IP_addr_3 = IPP3_split[0];
+					String port_3 = IPP3_split[1];
+					
+					//session Delete IPP3
+					rpcp.sessionDeleteClient(sessionID, oldVersion, IP_addr_3, port_3);
+					
+					//session Write to IPP1
 					Calendar discard_time_cal = Calendar.getInstance();
 					discard_time_cal.add(Calendar.SECOND, SESSION_TIMEOUT_SECS + 2*delta + tau);
 					String discard_time =  df.format(discard_time_cal.getTime());
+					sessionTable.get(sessionID).put("discard_time", discard_time);
 					
-	
-					write_result = rpcp.sessionWriteClient(sessionID, newVersion, message, newExpr, discard_time, random_AS.get("ip"), random_AS.get("port"));
+					rpcp.sessionWriteClient(sessionID, newVersion, message, newExpr, discard_time, IP_addr_1, port_1);
 					
-					if (write_result != null){
-						final_AS_ip = random_AS.get("ip");
-						final_AS_port = random_AS.get("port");
-						final_discardTime = discard_time;
-					}
-					
-					counter ++;
+					//construct cookie with location: <IPPlocal, IPP1, IPP2>
+					cookieVal+= "_" + IPP_local + "_" + IPP_1 + "_" + IPP_2;
 				}
-	
-					sessionTable.get(sessionID).put("discard_time", final_discardTime);
+				else{
+				
+					//-----(3) sessionWrite to random AS in memberset---------
 					
-					//put choice (where you're getting data from) into sessionTable
-					sessionTable.get(sessionID).put("choice", choice); 
+					/*TODO: use mbrset, or this: 
+					 * ArrayList<Hashtable<String,String>> random_mbrset = rpcp.getMembersClient(20, IP_addr_1, port_1);
+					 */
 					
-					//done updating sessionTable - release reader lock
-					readerLock.unlock();
+					//create an array with index numbers. Randomize using Collections.shuffle
+					ArrayList<Integer> randArray = new ArrayList<Integer>();
+					for (int k=0; k<mbrSet.size(); k++){
+						randArray.add(k);
+					}
+					Collections.shuffle(randArray);
+					String write_result = null;
+					String final_AS_ip = ""; 		//will hold the IP address of IPPbackup
+					String final_AS_port = "";		//will hold the port number of IPPbackup
+					String final_discardTime = "";
 					
-					//-------(4) make a new cookie with IPP primary and backup----------
-					//cookieVal so far only has session_ID and version number
-					
-					String IPP_newBackup = final_AS_ip + "_" + final_AS_port;
-					cookieVal += "_" + IPP_local + "_" + IPP_newBackup;				
-					
-					//Store primary and backup for later display
-					ConcurrentHashMap<String, String> sessionInfo = sessionTable.get(sessionID);
-					sessionInfo.put("IPPPrimary", IPP_local);
-					sessionInfo.put("IPPBackup", IPP_newBackup);
+					int counter = 0;
+					//try until you get a response 
 		
+					while (write_result == null){
 		
-					System.out.println("Cookie sent Secondary | " + cookieVal);
-					Cookie newCookie = new Cookie(a2CookieName, cookieVal);
-					response.addCookie(newCookie);
+						//If the mbrSet size is empty, use default IPP backup (i.e. none)
+						if(mbrSet.size() == 0){
+							break;
+						}
+		
+						ConcurrentHashMap<String,String> random_AS = mbrSet.get(randArray.get(counter)); //get random AS
+						System.out.println("Picking Random AS, Trial #"+(counter+1)+": " + random_AS);
+						Calendar discard_time_cal = Calendar.getInstance();
+						discard_time_cal.add(Calendar.SECOND, SESSION_TIMEOUT_SECS + 2*delta + tau);
+						String discard_time =  df.format(discard_time_cal.getTime());
+						
+		
+						write_result = rpcp.sessionWriteClient(sessionID, newVersion, message, newExpr, discard_time, random_AS.get("ip"), random_AS.get("port"));
+						
+						if (write_result != null){
+							final_AS_ip = random_AS.get("ip");
+							final_AS_port = random_AS.get("port");
+							final_discardTime = discard_time;
+						}
+						
+						counter ++;
+					}
+		
+						sessionTable.get(sessionID).put("discard_time", final_discardTime);
+						
+						
+						//-------(4) make a new cookie with IPP primary and backup----------
+						//cookieVal so far only has session_ID and version number
+						
+						String IPP_newBackup = final_AS_ip + "_" + final_AS_port;
+						cookieVal += "_" + IPP_local + "_" + IPP_newBackup;				
+						
+						//Store primary and backup for later display
+						ConcurrentHashMap<String, String> sessionInfo = sessionTable.get(sessionID);
+						sessionInfo.put("IPPPrimary", IPP_local);
+						sessionInfo.put("IPPBackup", IPP_newBackup);
+			
+			
+						System.out.println("Cookie sent Secondary | " + cookieVal);
+				}
+				
+				//put choice (where you're getting data from) into sessionTable
+				sessionTable.get(sessionID).put("choice", choice); 
+				
+				//done updating sessionTable - release reader lock
+				readerLock.unlock();
+				
+				Cookie newCookie = new Cookie(a2CookieName, cookieVal);
+				response.addCookie(newCookie);
 			}
 	}
 

@@ -93,6 +93,18 @@ Extra Credit
 ==================
 We implemented the accelerated Group Membership Protocol for quickly getting an initialized server up to speed with its mbrSet.  This is performed in the handleCommand method after it's been established where the session's most up to date version is from.  If a server has 2 or fewer members in its memberset and recieves a request containing a cookie with the most up to date session info on an IPPprimary and secondary that is not local, it performs a getMembers() call.  The IPPPrimary (or secondary if the first times out) responds with a list of its own mbrSet for this local server to add to its own.  The max size of the requested set is 20, which is expected to be small enough to be sent over a single packet.  This will allow the new server to more quickly expand its mbrSet size and increase its knowledge of other live servers.
 
+We also implemented the improved Garbage Collection in the method handleCommand
+in LargeScaleInfoA3.java. At this point in the code, we have already processe
+the client request and have saved the data into our local SStbl. We check for a 
+third IPP address. If it is present and IPP_local is not equal to IPP1, IPP2,
+or IPP3, then we proceed with the improved Garbage Collection. We send a 
+sessionDeleteClient to IPP3, and then write the results of processing the 
+client request to IPP1 using a sessionWriteClient. We also construct a cookie 
+the value <sessionID, version, IPPlocal, IPP1, IPP2>. If the qualifications
+for the improved Garbage Collection are not met, then we write to a random
+member in the AS and we construct a cookie with the value 
+<sessionID, version, IPPlocal, IPP_randomAS>
+
 
 Elastic Beanstalk Documentation
 ===========================
